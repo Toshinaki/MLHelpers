@@ -1,15 +1,20 @@
 from basichelpers import *
 import colorlover as cl
-import plotly.offline as plt
+import plotly.offline as plty
 import plotly.graph_objs as go
 import plotly.tools as tls
 import plotly.figure_factory as ff
+import matplotlib.pyplot as plt
 
-
+###############################################################################
+## Plotly functions
+###############################################################################
+## basics
 def make_colorscale(cname: str, n: int, cnum: str = '3', ctype: str = 'seq') -> list:
     n = n // 10 * 10
     return [[i/(n-1), c] for i, c in  enumerate(cl.to_rgb(cl.interp(cl.scales[cnum][ctype][cname], n)))]
 
+#######################
 def plotly_df_categorical_bar(df: pd.DataFrame, columns: List[str], ncols: int = 4, save: bool = False, filename: str = 'bar_charts', **kwargs) -> None:
     '''Docstring of `plotly_df_categorical_bar`
 
@@ -32,8 +37,8 @@ def plotly_df_categorical_bar(df: pd.DataFrame, columns: List[str], ncols: int =
                 break
             trace = go.Bar(x=s.index, y=s.values, name=s.name)
             fig.append_trace(trace, i+1, j+1)
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
 
 def plotly_df_numerical_hist(df: pd.DataFrame, columns: List[str], ncols: int = 4, save: bool = False, filename: str = 'histograms', **kwargs) -> None:
     '''Docstring of `plotly_df_numerical_hist`
@@ -58,8 +63,8 @@ def plotly_df_numerical_hist(df: pd.DataFrame, columns: List[str], ncols: int = 
                 break
             trace = go.Histogram(x=s, xbins=dict(start=s.min(), end=s.max(), size=kwargs.get('size', None)), name=s.name)
             fig.append_trace(trace, i+1, j+1)
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
 
 def plotly_df_grouped_hist(df: pd.DataFrame, col1: str, col2: str, ncols: int = 4, normdist: bool = False, save: bool = False, filename: str = 'histograms', **kwargs) -> None:
     '''Docstring of `plotly_df_grouped_hist`
@@ -103,8 +108,8 @@ def plotly_df_grouped_hist(df: pd.DataFrame, col1: str, col2: str, ncols: int = 
                 trace = go.Histogram(x=s, xbins=dict(start=s.min(), end=s.max(), size=kwargs.get('size', None)), name=s.name)
                 fig.append_trace(trace, i+1, j+1)
     fig['layout'].update(layout)
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
     
 #######################
 def plotly_df_crosstab_heatmap(df: pd.DataFrame, col1: str, col2: str, ttype: str = 'count', title: bool = False, axes_title: bool = False, save: bool = False, filename: str = 'crosstab_heatmap') -> None:
@@ -132,8 +137,8 @@ def plotly_df_crosstab_heatmap(df: pd.DataFrame, col1: str, col2: str, ttype: st
     fig['layout']['xaxis']['title'] = axes_title and ct.columns.name
     fig['layout']['yaxis']['title'] = axes_title and ct.index.name
     fig['layout']['xaxis']['side'] = 'bottom'
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
 
 def plotly_df_crosstab_heatmap_matrix(df: pd.DataFrame, columns: List[str], ttype: str = 'count', colorscale: Union[str, list] = 'Greens', width: int = 950, height: int = 750, save: bool = False, filename: str = 'crosstab_heatmap_matrix') -> None:
     '''Docstring of `plotly_df_crosstab_heatmap_matrix`
@@ -185,8 +190,8 @@ def plotly_df_crosstab_heatmap_matrix(df: pd.DataFrame, columns: List[str], ttyp
             fig.append_trace(trace, i+1, j+1)    
             
     fig['layout'].update(layout)
-    save and plt.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
+    plty.iplot(fig)
 
 def plotly_df_crosstab_stacked(df: pd.DataFrame, col1: str, col2: str, save: bool = False, filename: str = 'crosstab_stacked_bar') -> None:
     '''Docstring of `plotly_df_crosstab_stacked`
@@ -222,8 +227,8 @@ def plotly_df_crosstab_stacked(df: pd.DataFrame, col1: str, col2: str, save: boo
     data = [go.Bar(x=ct.iloc[i][:-1], y=ct.columns[:-1], name=ct.index[i], orientation='h') for i in range(ct.index.shape[0]-1)]
     
     fig = go.Figure(data=data, layout=layout)
-    save and plt.plot(fig, filename=filename+'html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'html', auto_open=False)
+    plty.iplot(fig)
 
 def plotly_df_crosstab_stacked_matrix(df: pd.DataFrame, columns: List[str], colorscale: Union[str, list] = 'Greens', width: int = 950, height: int = 750, save: bool = False, filename: str = 'crosstab_stacked_matrix') -> None:
     '''Docstring of `plotly_df_crosstab_stacked_matrix`
@@ -264,8 +269,8 @@ def plotly_df_crosstab_stacked_matrix(df: pd.DataFrame, columns: List[str], colo
                 fig.append_trace(trace, i+1, j+1)
     
     fig['layout'].update(layout)
-    save and plt.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
+    plty.iplot(fig)
     
 #######################
 def plotly_df_box(df: pd.DataFrame, col1: str, col2: str, save: bool = False, filename: str = 'Box Plot') -> None:
@@ -293,8 +298,8 @@ def plotly_df_box(df: pd.DataFrame, col1: str, col2: str, save: bool = False, fi
         xaxis=dict(title=col1)
     )
     fig = go.Figure(data=traces, layout=layout)
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
     
 def plotly_df_chi_square_matrix(df: pd.DataFrame, columns: List[str], cell_height: int = 45, width: int = 900, height: int = 700, save: bool = False, filename: str = 'Chi-Square Matrix') -> None:
     '''Docstring of `plotly_df_chi_square_matrix`
@@ -314,8 +319,8 @@ def plotly_df_chi_square_matrix(df: pd.DataFrame, columns: List[str], cell_heigh
     fig = ff.create_table(data, height_constant=cell_height, index=True)
     fig.layout.width = width
     fig.layout.height = height
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
 
 def plotly_describes(data: list, names: list = [], width: int = 900, height: int = 700, save: bool = False, filename: str = 'Descriptive Statistics'):
     '''Docstring of `plotly_describes`
@@ -341,8 +346,8 @@ def plotly_describes(data: list, names: list = [], width: int = 900, height: int
     fig = ff.create_table(describes, index=True)
     fig.layout.width = width
     fig.layout.height = height
-    save and plt.plot(fig, filename=filename+'.html', auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', auto_open=False)
+    plty.iplot(fig)
 
 def plotly_qq_plots(data: list, names: list = [], ncols: int = 4, width: int = 900, height: int = 700, save: bool = False, filename: str = 'QQ plots'):
     '''Docstring of `plotly_describes`
@@ -369,5 +374,45 @@ def plotly_qq_plots(data: list, names: list = [], ncols: int = 4, width: int = 9
             fig.append_trace(go.Scatter(x=p[0][0], y=p[0][0]*p[1][0]+p[1][1]), i+1, j+1)
     
     fig['layout'].update(layout)
-    save and plt.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
-    plt.iplot(fig)
+    save and plty.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
+    plty.iplot(fig)
+
+###############################################################################
+## Matplotlib functions
+###############################################################################
+
+#######################
+def plt_heatmap(data: np.array, title: Optional[Union[str, int]] = None, size: Tuple[int, int] = (28, 28), save: bool = False, filename: str = 'Heatmap.png', **kwargs) -> None:
+    plt.figure(figsize=kwargs.get('figsize', (5,5)))
+    image = data.reshape(*size)
+    plt.imshow(image, cmap=kwargs.get('colorscale', plt.cm.binary), interpolation=kwargs.get('interpolation', None))
+    plt.axis('off')
+    title and plt.title(title)
+    save and plt.savefig(filename)
+
+def plt_heatmaps(data: List[np.array], titles: Optional[List[Union[str, int]]], ncols: int = 4, size: Tuple[int, int] = (28, 28), save: bool = False, filename: str = 'Heatmaps.png', **kwargs) -> None:
+    ndata = len(data)
+    nrows = int(np.ceil(ndata / ncols))
+    data = [image.reshape(*size) for image in data]
+    if not np.array(titles).size:
+        titles = ['']*ndata
+    # n_empty = nrows * ncols - len(images)   
+    # images.append(np.zeros((size[0], size[1] * n_empty)))
+
+    # for i in range(nrows):
+    #     for j in range(ncols):
+    plt.figure(figsize=kwargs.get('figsize', (5,5)))
+    for i in range(ndata):
+        plt.subplot(nrows, ncols, i+1)
+        plt.imshow(data[i], cmap=kwargs.get('colorscale', plt.cm.binary), interpolation=kwargs.get('interpolation', None))
+        plt.title(titles[i], fontsize=kwargs.get('title_fontsize', 20))
+        plt.axis('off')
+    plt.subplots_adjust(
+        top=kwargs.get('subplot_top', 0.9),
+        bottom=kwargs.get('subplot_bottom', 0.1),
+        left=kwargs.get('subplot_left', 0.125),
+        right=kwargs.get('subplot_right', 0.9),
+        hspace=kwargs.get('subplot_hspace', 0.2),
+        wspace=kwargs.get('subplot_wspace', 0.2)
+    )
+    save and plt.savefig(filename)

@@ -265,20 +265,15 @@ class DataFrameScaler(BaseEstimator, TransformerMixin):
         Specify this parameter to ignore numerical columns too.
     '''
 
-    SCALERS = {
-        'unit': StandardScaler,
-        '0,1': MinMaxScaler,
-        '-1,1': MaxAbsScaler
-    }
-
     def __init__(self, scaler: str = 'unit', ignore_cols: List[str] = [], target_cols: List[str] = [], **kwargs):
         assert scaler in ['unit', '0,1', '-1,1'], 'Invalid scaler {}. See help for valid scalers.'.format(scaler)
         self.scaler = scaler
         self.ignore_cols = ignore_cols
-        self.target_cols = ignore_cols and [] or target_cols
+        if ignore_cols:
+            self.target_cols = [] 
+        else:
+            self.target_cols = target_cols
         self.kwargs = kwargs
-        self.ignore_cols = ignore_cols
-        self.target_cols = ignore_cols and [] or target_cols
     
     def fit(self, X: pd.DataFrame, y=None):
         if self.scaler == 'unit':

@@ -12,7 +12,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 
-def select_classifier(X, y, n_splits=10, test_size=0.1, random_state=0, show=True):
+def select_classifier(X, y, n_splits=10, test_size=0.1, random_state=42, show=True):
     classifiers = [
         AdaBoostClassifier(),
         BaggingClassifier(),
@@ -45,10 +45,11 @@ def select_classifier(X, y, n_splits=10, test_size=0.1, random_state=0, show=Tru
     names = [clf.__class__.__name__ for clf in classifiers]
     cv = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
     scores = {}
-    for train_index, test_index in cv.split(X, y):
-        X_train, X_test = X[train_index], X[test_index]
-        y_train, y_test = y[train_index], y[test_index]
-        for name, clf in zip(names, classifiers):
+    for i, (name, clf) in enumerate(zip(names, classifiers)):
+        print('Processing {}...'.format(name))
+        for train_index, test_index in cv.split(X, y):
+            X_train, X_test = X[train_index], X[test_index]
+            y_train, y_test = y[train_index], y[test_index]
             try:
                 clf.fit(X_train, y_train)
                 train_predictions = clf.predict(X_test)
