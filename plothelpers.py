@@ -377,6 +377,43 @@ def plotly_qq_plots(data: list, names: list = [], ncols: int = 4, width: int = 9
     save and plty.plot(fig, filename=filename+'.html', image_width=width, image_height=height, auto_open=False)
     plty.iplot(fig)
 
+#######################
+def plotly_df_2d_clusters(df: pd.DataFrame, x: str, y: str, l: str, title: Optional[str] = '2D Clusters', width: int = 900, height: int = 700, save: bool = False):
+    '''Docstring of `plotly_df_clusters`
+
+    Plot scatter plots of two columns grouped by the unique values
+    of a third column with plotly.
+
+    Args:
+        df: A pandas DataFrame.
+        x: The column name of x values.
+        y: The column name of y values.
+        l: The column name to group x and y on which.
+    '''
+    dfs = dict(tuple(df[[x, y, l]].groupby(l)))
+    labels = df[l].uniques()
+    n_labels = len(labels)
+    colors = [c[1] for c in make_colorscale('Paired', n_labels, '12', 'qual')]
+
+    traces = []
+    clusters = []
+    buttons = [dict(
+        label = 'None',
+        method = 'restyle',
+        args = ['shapes', []]
+    )]
+    for label, color in zip(labels, colors):
+        data = dfs[label]
+        trace = go.Scattergl(
+            x=data[x], y=data[y], mode='markers', name=label, 
+            marker=dict(color=color, opacity=0.2))
+        traces.append(trace)
+    layout = go.Layout(title=title)
+    fig = go.Figure(traces, layout=layout)
+    save and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    plty.iplot(fig)
+    return fig
+
 ###############################################################################
 ## Matplotlib functions
 ###############################################################################

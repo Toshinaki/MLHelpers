@@ -2,8 +2,9 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from typing import Union, List, Callable, Optional, Tuple
+from sklearn.decomposition import PCA
 
-
+## inference
 def df_contingency_table(df: pd.DataFrame, col1: str, col2: str, ttype: str = 'count') -> pd.DataFrame:
     '''Docstring of `df_contingency_table`
 
@@ -108,6 +109,7 @@ def corrected_cramers_V(chi2: float, ct: pd.DataFrame) -> float:
     kcorr = k - ((k-1)**2)/(n-1)
     return np.sqrt(phi2corr / min( (kcorr-1), (rcorr-1)))
 
+## data group
 def grouped_col(df: pd.DataFrame, col1: str, col2: str) -> Tuple[np.array, List[pd.Series]]:
     '''Docstring of `grouped_col`
 
@@ -127,6 +129,7 @@ def grouped_col(df: pd.DataFrame, col1: str, col2: str) -> Tuple[np.array, List[
     vals = df[col1].unique()
     return vals, [df[df[col1]==val][col2].dropna() for val in vals]
 
+## descriptive
 def advanced_describe(data: list, index=None, dtype=None, name: str = None) -> pd.Series:
     '''Docstring of `advanced_describe`
 
@@ -150,3 +153,28 @@ def advanced_describe(data: list, index=None, dtype=None, name: str = None) -> p
     des['kurtosis'] = t.kurtosis
     des = np.r_[[['', name]], [['Item', 'Statistic']], des.reset_index().values]
     return des
+
+## linear algebra
+def explained_variance(X: Optional[np.array] = None, raito: bool = False, cumulative: bool = True) -> Union[np.array, List[np.array]]:
+    '''Docstring of `explained_variance`
+
+    Calculate the explained variances of given data.
+
+    Args:
+        X: A numpy array for calculation.
+        ratio: Whether to return the values as percentage 
+        to the sum or not.
+        cumulative: If True, return the cumulative sum of
+        explained variances altogether.
+
+    Returns:
+        Explained variances or Explained variances and its
+        cumulative sum.
+    '''
+    pca = PCA()
+    pca.fit(X)
+    var_exp = ratio and pca.explained_variance_ratio_ or pca.explained_variance_
+    if cumulative:
+        cum_var_exp = np.cumsum(var_exp) # Cumulative explained variance
+        return var_exp, cum_var_exp
+    return var_exp
