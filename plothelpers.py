@@ -378,8 +378,8 @@ def plotly_qq_plots(data: list, names: list = [], ncols: int = 4, width: int = 9
     plty.iplot(fig)
 
 #######################
-def plotly_df_2d_clusters(df: pd.DataFrame, x: str, y: str, l: str, title: Optional[str] = '2D Clusters', width: int = 900, height: int = 700, save: bool = False):
-    '''Docstring of `plotly_df_clusters`
+def plotly_df_2d_clusters(df: pd.DataFrame, x: str, y: str, l: str, title: Optional[str] = '2D Clusters', colors: Union[str, list] = '12,qual,Paired', **kwargs):
+    '''Docstring of `plotly_df_2d_clusters`
 
     Plot scatter plots of two columns grouped by the unique values
     of a third column with plotly.
@@ -389,30 +389,121 @@ def plotly_df_2d_clusters(df: pd.DataFrame, x: str, y: str, l: str, title: Optio
         x: The column name of x values.
         y: The column name of y values.
         l: The column name to group x and y on which.
+        title: Title of the plot.
+        colors: Colors of every clusters. Accept a list of color strings
+        with same length as the number of clusters. Or a string that will
+        be passed to `make_colorscale` to make colors for every clusters.
     '''
+    # group by unique values
     dfs = dict(tuple(df[[x, y, l]].groupby(l)))
-    labels = df[l].uniques()
+    labels = np.unique(df[l])
     n_labels = len(labels)
-    colors = [c[1] for c in make_colorscale('Paired', n_labels, '12', 'qual')]
-
+    # check for colors
+    if isinstance(colors, str):
+        c1, c2, c3 = colors.split(',')
+        colors =  [c[1] for c in make_colorscale(c3, n_labels, c1, c2)]
+    else:
+        assert len(colors) == n_labels, 'Invalid colors. {} colors is needed.'.format(n_labels)
+    # add data points cluster by cluster
     traces = []
-    clusters = []
+    opacitys = [kwargs.get('inactive_opacity', 0.05),] * n_labels
+    line_width = [kwargs.get('inactive_line_width', 0.1),] * n_labels
+    # buttons for selecting cluster to highlight
     buttons = [dict(
-        label = 'None',
+        label = 'Reset',
         method = 'restyle',
-        args = ['shapes', []]
+        args = [{
+            'marker.opacity': [kwargs.get('active_opacity', 1),] * n_labels,
+            'marker.line.width': [kwargs.get('active_line_width', 1),]*n_labels
+        }]
     )]
-    for label, color in zip(labels, colors):
+    for i, (label, color) in enumerate(zip(labels, colors)):
         data = dfs[label]
         trace = go.Scattergl(
             x=data[x], y=data[y], mode='markers', name=label, 
-            marker=dict(color=color, opacity=0.2))
+            marker=dict(color=color, opacity=1, line=dict(width=1)))
         traces.append(trace)
-    layout = go.Layout(title=title)
-    fig = go.Figure(traces, layout=layout)
-    save and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+        button = dict(
+            label = 'Cluster {}'.format(label),
+            method = 'restyle',
+            args = [{
+                'marker.opacity': opacitys[:i] + [kwargs.get('active_opacity', 1),] + opacitys[i+1:],
+                'marker.line.width': line_width[:i] + [kwargs.get('active_line_width', 1),] + line_width[i+1:],
+            }]
+        )
+        buttons.append(button)
+    updatemenus = [
+        dict(
+            type='buttons',
+            buttons=buttons
+        )
+    ]
+    layout = go.Layout(title=title, updatemenus=updatemenus)
+    fig = go.Figure(data=traces, layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=kwargs.get('width', 900), image_height=kwargs.get('height', 700), auto_open=False)
     plty.iplot(fig)
-    return fig
+
+def plotly_2d_clusters(data: np.array, title: Optional[str] = '2D Clusters', colors: Union[str, list] = '12,qual,Paired', **kwargs):
+    '''Docstring of `plotly_2d_clusters`
+
+    Plot scatter plots of first two columns grouped by the unique values
+    of the third column with plotly.
+
+    Args:
+        data: A numpy array.
+        title: Title of the plot.
+        colors: Colors of every clusters. Accept a list of color strings
+        with same length as the number of clusters. Or a string that will
+        be passed to `make_colorscale` to make colors for every clusters.
+    '''
+    # group by unique values
+    labels = np.unique(data[:,2])
+    data = {k: data[data[:,2]==k] for k in labels}
+    n_labels = len(labels)
+    # check for colors
+    if isinstance(colors, str):
+        c1, c2, c3 = colors.split(',')
+        colors =  [c[1] for c in make_colorscale(c3, n_labels, c1, c2)]
+    else:
+        assert len(colors) == n_labels, 'Invalid colors. {} colors is needed.'.format(n_labels)
+    opacitys = [kwargs.get('inactive_opacity', 0.05),] * n_labels
+    line_width = [kwargs.get('inactive_line_width', 0.1),] * n_labels
+    # buttons for selecting cluster to highlight
+    buttons = [dict(
+        label = 'Reset',
+        method = 'restyle',
+        args = [{
+            'marker.opacity': [kwargs.get('active_opacity', 1),] * n_labels,
+            'marker.line.width': [kwargs.get('active_line_width', 1),]*n_labels
+        }]
+    )]
+    # add data points cluster by cluster
+    traces = []
+    for i, (label, color) in enumerate(zip(labels, colors)):
+        d = data[label]
+        trace = go.Scattergl(
+            x=d[:,0], y=d[:,1], mode='markers', name=label, 
+            marker=dict(color=color, opacity=1, line=dict(width=1)))
+        traces.append(trace)
+        button = dict(
+            label = 'Cluster {}'.format(label),
+            method = 'restyle',
+            args = [{
+                'marker.opacity': opacitys[:i] + [kwargs.get('active_opacity', 1),] + opacitys[i+1:],
+                'marker.line.width': line_width[:i] + [kwargs.get('active_line_width', 1),] + line_width[i+1:],
+            }]
+        )
+        buttons.append(button)
+    updatemenus = [
+        dict(
+            type='buttons',
+            buttons=buttons
+        )
+    ]
+    layout = go.Layout(title=title, updatemenus=updatemenus)
+    fig = go.Figure(data=traces, layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=kwargs.get('width', 900), image_height=kwargs.get('height', 700), auto_open=False)
+    plty.iplot(fig)
 
 ###############################################################################
 ## Matplotlib functions
