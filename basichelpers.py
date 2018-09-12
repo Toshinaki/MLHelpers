@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
-from typing import Union, List, Callable, Optional, Tuple
+from typing import Union, List, Callable, Optional, Tuple, Iterable
 from sklearn.decomposition import PCA
 
 ## inference

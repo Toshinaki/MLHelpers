@@ -19,6 +19,20 @@ from sklearn.preprocessing import Imputer, StandardScaler, MinMaxScaler, MaxAbsS
 ##  sparse data - maxabs_scale, MaxAbsScaler; scale, StandardScaler with "with_mean=False"
 ##  with outliers - robust_scale, RobustScaler
 
+###############################################
+## Data split functions
+def np_split_train_test_indices(length: int, test_size: float, random_state: int) -> Tuple[np.array, np.array]:
+    shuffled_indices = np.random.RandomState(seed=random_state).permutation(length)
+    test_set_size = int(length * test_size)
+    return shuffled_indices[:test_set_size], shuffled_indices[test_set_size:]
+
+def np_split_train_test(data: Union[list, tuple, np.array, pd.DataFrame], test_size: float = 0.2, random_state: int = 42) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    test_indices, train_indices = np_split_train_test_indices(len(data), test_size, random_state)
+    if isinstance(data, pd.DataFrame):
+        return data.iloc[train_indices], data.iloc[test_indices]
+    else:
+        data = np.array(data)
+        return data[train_indices, :], data[test_indices, :]
 
 ###############################################
 ## Data Preparation Classes
