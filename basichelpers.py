@@ -3,6 +3,7 @@ import numpy as np
 from scipy import stats
 from typing import Union, List, Callable, Optional, Tuple, Iterable
 from sklearn.decomposition import PCA
+import inspect
 
 ## inference
 def df_contingency_table(df: pd.DataFrame, col1: str, col2: str, ttype: str = 'count') -> pd.DataFrame:

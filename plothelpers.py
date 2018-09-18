@@ -147,7 +147,8 @@ def plotly_df_grouped_hist(
     # layout = go.Layout(title='Histogram of {} - grouped by {}'.format(col2, col1), showlegend=False, width=width, height=height)
     # for k in range(nrows):
     #     layout['yaxis{}'.format(k+1)]['title'] = 'Count'
-    layout = {'yaxis{}'.format(k+1): {'title': 'Count'} for k in range(nrows)}.update(dict(
+    layout = {'yaxis{}'.format(k+1): {'title': 'Count'} for k in range(nrows)}
+    layout.update(dict(
         title='Histogram of {} - grouped by {}'.format(col2, col1), 
         showlegend=False, width=width, height=height
     ))
@@ -240,7 +241,7 @@ def plotly_df_scatter_matrix(
     if isinstance(colorscale, str):
         colorscale =  make_colorscale(colorscale, reverse=kwargs.get('reverse', False))
     nrows = ncols = len(columns)
-    trace = go.Splom(
+    data = [go.Splom(
         dimensions=[{'label': col, 'values':df[col]} for col in columns],
         marker=dict(
             opacity=kwargs.get('marker_opacity', 0.5),
@@ -248,19 +249,40 @@ def plotly_df_scatter_matrix(
             color=color,
             colorscale=colorscale,
             showscale=kwargs.get('showscale', True)
-        )
-    )
+        ),
+        diagonal={'visible': False},
+    )]
     width = kwargs.get('width', 1000)
     height = kwargs.get('height', 800)
-    layout = go.Layout(
+    for i, col in enumerate(columns):
+        start = df[col].min()
+        end = df[col].max()
+        bin_size = (end - start) / kwargs.get('bin_num', 20)
+        trace = go.Histogram(
+            x=df[col], xbins=dict(start=start, end=end, size=bin_size), 
+            name=col, autobinx=False,
+            xaxis='x{}'.format(i+ncols+1),
+            yaxis='y{}'.format(i+ncols+1)
+        )
+        data.append(trace)
+    hist_pos = kwargs.get('hist_pos', 0.15)
+    layout = go.Layout({
+        'xaxis{}'.format(i+ncols+1): {'domain': [1-(i+1)/ncols+hist_pos/ncols, 1-i/ncols-hist_pos/ncols], 'anchor': 'x{}'.format(i+ncols+1)}
+    for i in range(ncols)})
+    layout.update({
+        'yaxis{}'.format(i+ncols+1): {'domain': [i/ncols+hist_pos/ncols, (i+1)/ncols-hist_pos/ncols], 'anchor': 'y{}'.format(i+ncols+1)}
+    for i in range(ncols)})
+    layout.update(dict(
         title=title,
         width=width,
         height=height,
         dragmode=kwargs.get('dragmode', 'select'),
         hovermode='closest',
         plot_bgcolor=(not color is None) and kwargs.get('plot_bgcolor', None),
-    )
-    fig = go.Figure(data=[trace], layout=layout)
+        showlegend=False
+    ))
+
+    fig = go.Figure(data=data, layout=layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
     plty.iplot(fig)
 #######################
@@ -789,3 +811,41 @@ def plt_heatmaps(
         wspace=kwargs.get('subplot_wspace', 0.2)
     )
     kwargs.get('save', False) and plt.savefig(title+'.png')
+
+def plt_learning_curve(
+        ms:             Iterable[int],
+        train_errors:   Iterable[float], 
+        val_errors:     Iterable[float], 
+        title:          str='Learning Curve',
+        **kwargs) -> None:
+    plt.plot(train_errors, kwargs.get('train_line', 'r-+'), linewidth=kwargs.get('train_error_linewidth', 2), label='train')
+    plt.plot(val_errors, kwargs.get('val_line', 'b-'), linewidth=kwargs.get('val_error_linewidth', 3), label='val')
+    plt.title(title)
+    kwargs.get('save', False) and plt.savefig(title+'.png')
+
+def plotly_learning_curve(
+        ms:             Iterable[int],
+        train_errors:   Iterable[float], 
+        val_errors:     Iterable[float], 
+        title:          str='Learning Curve',
+        **kwargs) -> None:
+    trace1 = go.Scatter(
+        x=ms, y=train_errors, mode='lines', name='train_set', 
+        line=dict(
+            color=(kwargs.get('train_linecolor', 'rgb(255, 0, 0)')),
+            width=kwargs.get('train_linewidth', 2)
+        )
+    )
+    trace2 = go.Scatter(
+        x=ms, y=val_errors, mode='lines', name='val_set',
+        line=dict(
+            color=(kwargs.get('train_linecolor', 'rgb(0, 0, 255)')),
+            width=kwargs.get('train_linewidth', 3)
+        )
+    )
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height)
+    fig = go.Figure(data=[trace1, trace2], layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    plty.iplot(fig)

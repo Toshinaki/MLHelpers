@@ -1,6 +1,8 @@
 from basichelpers import *
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import Imputer, StandardScaler, MinMaxScaler, MaxAbsScaler, LabelEncoder, LabelBinarizer, OneHotEncoder
+from sklearn.preprocessing import Imputer, StandardScaler, MinMaxScaler, MaxAbsScaler, LabelEncoder, LabelBinarizer, OneHotEncoder, PolynomialFeatures
+
+from functools import reduce
 
 # Data cleaning:
 #   Fix or remove outliers (optional).
@@ -35,7 +37,18 @@ def np_split_train_test(data: Union[list, tuple, np.array, pd.DataFrame], test_s
         return data[train_indices, :], data[test_indices, :]
 
 ###############################################
-## Data Preparation Classes
+## Data Preparation Classes & functions
+def feature_adder_poly(df, *cols, degree=2, include_bias=False):
+    poly = PolynomialFeatures(degree=degree, include_bias=include_bias)
+    poly.fit(df[list(cols)])
+    return poly.transform(df[list(cols)])[:, len(cols):], poly.get_feature_names(cols)[len(cols):]
+FEATUREADDERFUNCS = {
+    'add': lambda df, *cols: np.sum([df[col] for col in cols], axis=0),
+    'sub': lambda df, col1, col2: df[col1] - df[col2],
+    'mul': lambda df, *cols: reduce(np.multiply, df[list(cols)]),
+    'div': lambda df, col1, col2: df[col1] / df[col2],
+    'poly': feature_adder_poly
+}
 
 class DataFrameFiller(BaseEstimator, TransformerMixin):
     '''Docstring of `DataFrameFiller`.
@@ -156,9 +169,15 @@ class DataFrameFeatureAdder(BaseEstimator, TransformerMixin):
             for col in cols:
                 assert col in X, '"{}" is not a column of given DataFrame'.format(col)
                 if self.remove: remove.append(col)
-            if isinstance(names, str): names = [names]
-            for name in names:
-                assert not name in X, '"{}" already exists.'.format(name)
+            if isinstance(names, dict): pass
+            else:
+                if isinstance(names, str): names = [names]
+                for name in names:
+                    assert not name in X, '"{}" already exists.'.format(name)
+            if isinstance(func, str):
+                assert func in FEATUREADDERFUNCS, 'Unrecognized function: "{}".'.format(func)
+            else:
+                assert callable(func), '"{}" object not a function.'.format(type(func))
         self.remove = remove
         return self
 
@@ -166,11 +185,15 @@ class DataFrameFeatureAdder(BaseEstimator, TransformerMixin):
         X = X.copy()
         for adds in self.adds:
             cols, names, func = adds
-            if isinstance(names, str): 
-                X[names] = func(X, *cols)
+            if isinstance(func, str): func = FEATUREADDERFUNCS[func]
+            if isinstance(names, dict):
+                data, new_names = func(X, *cols, **names)
+                X = pd.concat([X, pd.DataFrame(data, columns=new_names)], axis=1)
             else:
-                X = pd.concat([X, pd.DataFrame(func(X, *cols), columns=names)], axis=1)
-            # X[names] = func(X, *cols)
+                if isinstance(names, str): 
+                    X[names] = func(X, *cols)
+                else:
+                    X = pd.concat([X, pd.DataFrame(func(X, *cols), columns=names)], axis=1)
         if self.remove:
             X = X.drop(columns=[*self.remove])
         return X
@@ -273,14 +296,14 @@ class DataFrameScaler(BaseEstimator, TransformerMixin):
         through the largest maximum value in each feature. 
         It is meant for data that is already centered at zero or 
         sparse data.
+        Or any scaler classes.
         Extra paramters will be passed to sklearn scalers if specified.
         ignore_cols: Columns that will not be scaled.
         By default, all categorical columns will be ignored.
         Specify this parameter to ignore numerical columns too.
     '''
 
-    def __init__(self, scaler: str = 'unit', ignore_cols: List[str] = [], target_cols: List[str] = [], **kwargs):
-        assert scaler in ['unit', '0,1', '-1,1'], 'Invalid scaler {}. See help for valid scalers.'.format(scaler)
+    def __init__(self, scaler: Union[str, object] = 'unit', ignore_cols: List[str] = [], target_cols: List[str] = [], **kwargs):
         self.scaler = scaler
         self.ignore_cols = ignore_cols
         if ignore_cols:
@@ -302,6 +325,8 @@ class DataFrameScaler(BaseEstimator, TransformerMixin):
             self.scaler = MaxAbsScaler(**{
                 k: self.kwargs.get(k, d) for k, d in [('copy', True)]
             })
+        else:
+            self.scaler = self.scaler(**self.kwargs)
         # self.scaler = self.SCALERS[self.scaler](**self.kwargs).fit(X)
         self.target_cols = self.ignore_cols and [col for col in X.select_dtypes(include=['number']) if not col in self.ignore_cols] or (
             self.target_cols and [col for col in X.select_dtypes(include=['number']) if col in self.target_cols] or X.select_dtypes(include=['number']).columns)
