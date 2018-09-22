@@ -1,5 +1,7 @@
 from basichelpers import *
-from sklearn.model_selection import cross_val_predict, StratifiedShuffleSplit, GridSearchCV, RandomizedSearchCV, cross_val_score, train_test_split
+from sklearn.model_selection import \
+    cross_val_predict, StratifiedShuffleSplit, GridSearchCV, RandomizedSearchCV, \
+    cross_val_score, train_test_split, learning_curve
 
 
 from sklearn.metrics import accuracy_score, log_loss
@@ -44,6 +46,10 @@ def select_classifier(X, y, n_splits=10, test_size=0.1, random_state=42, show=Tr
         SGDClassifier(),
         SVC()
     ]
+    if isinstance(X, pd.DataFrame):
+        X = X.values
+    if isinstance(y, pd.DataFrame):
+        y = y.values
     names = [clf.__class__.__name__ for clf in classifiers]
     cv = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
     scores = {}
@@ -131,24 +137,51 @@ def select_regressor(X, y, scoring='neg_mean_squared_error', show=True):
 
 
 
-def simple_model_scores(model, X_train, y_train, X_test=None, y_test=None):
+def simple_model_scores(model, X_train, y_train, X_test=None, y_test=None, regression=True, **kwargs):
+    if isinstance(X_train, pd.DataFrame):
+        X_train = X_train.values
+    if isinstance(y_train, pd.DataFrame):
+        y_train = y_train.values
     print('Model:')
     print(' ', model.__class__.__name__)
-    scores = np.sqrt(-cross_val_score(model, X_train, y_train, scoring='neg_mean_squared_error', cv=10))
+    if regression:
+        scores = np.sqrt(-cross_val_score(model, X_train, y_train, scoring='neg_mean_squared_error', cv=10))
+    else:
+        scores = []
+        cv = StratifiedShuffleSplit(n_splits=kwargs.get('n_splits', 10), test_size=kwargs.get('test_size', 0.1), random_state=kwargs.get('random_state', 42))
+        for train_index, test_index in cv.split(X_train, y_train):
+            X_t, X_v = X_train[train_index], X_train[test_index]
+            y_t, y_v = y_train[train_index], y_train[test_index]
+            try:
+                model.fit(X_t, y_t)
+                train_predictions = model.predict(X_v)
+                acc = accuracy_score(y_v, train_predictions)
+            except:
+                acc = 0
+            scores.append(acc)
+    
     print('Cross-Valition score:')
-    print(' mean:', scores.mean(), 'std:', scores.std())
+    print(' mean:', np.mean(scores), 'std:', np.std(scores))
 
     model.fit(X_train, y_train)
     y_train_pred = model.predict(X_train)
-    rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
     print('Train set score:')
-    print(' ', rmse)
+    if regression:
+        rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
+        print(' ', rmse)
+    else:
+        acc = accuracy_score(y_train, y_train_pred)
+        print(' ', acc)
 
     if not X_test is None:
         y_pred = model.predict(X_test)
-        test_rmse = np.sqrt(mean_squared_error(y_test, y_pred))
         print('Test data score:')
-        print(' ', test_rmse)
+        if regression:
+            test_rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            print(' ', test_rmse)
+        else:
+            test_acc = accuracy_score(y_test, y_pred)
+            print(' ', test_acc)
 
 def simple_grid_search_scores(model, params, X_train, y_train, cv=10, scoring='neg_mean_squared_error', verbose=1):
     grid = GridSearchCV(model, params, cv=cv, scoring=scoring, verbose=verbose)
@@ -158,15 +191,16 @@ def simple_grid_search_scores(model, params, X_train, y_train, cv=10, scoring='n
     print(' ', grid.best_params_)
     return grid
 
-def learning_curve_gen(model, X, y, size=None, step=1, splitter=train_test_split, scorer=mean_squared_error, **kwargs):
-    X_train, X_val, y_train, y_val = splitter(X, y, **kwargs)
-    train_errors, val_errors = [], []
-    if not size:
-        size = len(X)
-    for m in range(1, size+1, step):
-        model.fit(X_train[:m], y_train[:m])
-        y_train_predict = model.predict(X_train[:m])
-        y_val_predict = model.predict(X_val)
-        train_errors.append(scorer(y_train_predict, y_train[:m]))
-        val_errors.append(scorer(y_val_predict, y_val))
-    return train_errors, val_errors, list(range(1, size, step))
+def learning_curve_gen(
+        estimator, 
+        X, 
+        y, 
+        cv=None,
+        train_sizes=np.linspace(.1, 1.0, 5), 
+        **kwargs):
+    train_sizes, train_scores, test_scores = learning_curve(estimator, X, y, cv=cv, train_sizes=train_sizes, n_jobs=kwargs.get('n_jobs', 1))
+    train_means = np.mean(train_scores, axis=1)
+    train_stds = np.std(train_scores, axis=1)
+    val_means = np.mean(test_scores, axis=1)
+    val_stds = np.std(test_scores, axis=1)
+    return train_sizes, train_means, train_stds, val_means, val_stds

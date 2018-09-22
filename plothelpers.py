@@ -21,7 +21,7 @@ def make_colorscale(
         reverse:    bool = False) -> list:
     cnum, ctype, cname = clname.split(',')
     colors = cl.scales[cnum][ctype][cname]
-    if n: 
+    if n and n > int(cnum): 
         n = n // 10 * 10
         colors = cl.to_rgb(cl.interp(colors, n))
     else:
@@ -254,6 +254,15 @@ def plotly_df_scatter_matrix(
     )]
     width = kwargs.get('width', 1000)
     height = kwargs.get('height', 800)
+    # layout = go.Layout(
+    #     title=title,
+    #     width=width,
+    #     height=height,
+    #     dragmode=kwargs.get('dragmode', 'select'),
+    #     hovermode='closest',
+    #     plot_bgcolor=(not color is None) and kwargs.get('plot_bgcolor', None),
+    # )
+
     for i, col in enumerate(columns):
         start = df[col].min()
         end = df[col].max()
@@ -378,7 +387,7 @@ def plotly_df_crosstab_heatmap_matrix(
                 ann['yref'] = 'y{}'.format(i+1)
                 ann['font']['color'] = float(ann['text']) / df.shape[0] > 0.5 and 'rgb(255,255,255)' or 'rgb(0,0,0)'
                 if ttype == 'colper': ann['text'] = ann['text'] + '%'
-            layout['annotations'].extend(annotations)
+            layout['annotations'] = list(layout['annotations']).extend(annotations)
             
             fig.append_trace(trace, i+1, j+1)    
             
@@ -689,7 +698,9 @@ def plotly_df_2d_clusters(
     ]
     width = kwargs.get('width', 900)
     height = kwargs.get('height', 700)
-    layout = go.Layout(title=title, updatemenus=updatemenus, width=width, height=height)
+    layout = go.Layout(
+        title=title, updatemenus=updatemenus, width=width, height=height,
+        xaxis=dict(title=x), yaxis=dict(title=y))
     fig = go.Figure(data=traces, layout=layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
     plty.iplot(fig)
@@ -812,40 +823,82 @@ def plt_heatmaps(
     )
     kwargs.get('save', False) and plt.savefig(title+'.png')
 
+# def plt_learning_curve(train_errors, val_errors, title: str='Learning Curve', **kwargs):
+#     plt.plot(train_errors, 'r-+', linewidth=kwargs.get('train_error_linewidth', 2), label='train')
+#     plt.plot(val_errors, 'b-', linewidth=kwargs.get('val_error_linewidth', 3), label='val')
+#     plt.title(title)
+#     kwargs.get('save', False) and plt.savefig(title+'.png')
+
 def plt_learning_curve(
-        ms:             Iterable[int],
-        train_errors:   Iterable[float], 
-        val_errors:     Iterable[float], 
-        title:          str='Learning Curve',
-        **kwargs) -> None:
-    plt.plot(train_errors, kwargs.get('train_line', 'r-+'), linewidth=kwargs.get('train_error_linewidth', 2), label='train')
-    plt.plot(val_errors, kwargs.get('val_line', 'b-'), linewidth=kwargs.get('val_error_linewidth', 3), label='val')
+        train_sizes, 
+        train_means, 
+        train_std, 
+        val_means, 
+        val_stds,
+        ylim=None,
+        title='Learning Curve'):
+    plt.figure()
     plt.title(title)
-    kwargs.get('save', False) and plt.savefig(title+'.png')
+    if ylim is not None:
+        plt.ylim(*ylim)
+    plt.xlabel('Training data number')
+    plt.ylabel('Score')
+    plt.grid()
+    plt.fill_between(train_sizes, train_means - train_std, train_means + train_std, alpha=0.1, color='r')
+    plt.fill_between(train_sizes, val_means - val_stds, val_means + val_stds, alpha=0.1, color='b')
+    plt.plot(train_sizes, train_means, 'o-', color='r', label='Training score')
+    plt.plot(train_sizes, val_means, 'o-', color='b', label='Cross-validation score')
+    plt.legend(loc='best')
+    plt.show()
 
 def plotly_learning_curve(
-        ms:             Iterable[int],
-        train_errors:   Iterable[float], 
-        val_errors:     Iterable[float], 
-        title:          str='Learning Curve',
-        **kwargs) -> None:
+        train_sizes, 
+        train_means, 
+        train_std, 
+        val_means, 
+        val_stds,
+        ylim=None,
+        title: str='Learning Curve',
+        **kwargs
+    ):
+    color1, color2 = 'rgb(255,0,0)', 'rgb(0,0,255)'
+    trace0 = go.Scatter(
+        x=train_sizes, y=train_means+train_std, 
+        fill=None, mode='lines', line=dict(width=0), 
+        showlegend=False, hoverinfo='skip'
+    )
     trace1 = go.Scatter(
-        x=ms, y=train_errors, mode='lines', name='train_set', 
-        line=dict(
-            color=(kwargs.get('train_linecolor', 'rgb(255, 0, 0)')),
-            width=kwargs.get('train_linewidth', 2)
-        )
+        x=train_sizes, y=train_means-train_std, 
+        fill='tonexty', mode='none',
+        fillcolor='rgba(255, 0, 0, 0.2)', showlegend=False, hoverinfo='skip'
     )
     trace2 = go.Scatter(
-        x=ms, y=val_errors, mode='lines', name='val_set',
-        line=dict(
-            color=(kwargs.get('train_linecolor', 'rgb(0, 0, 255)')),
-            width=kwargs.get('train_linewidth', 3)
-        )
+        x=train_sizes, y=train_means, fill=None, mode='lines', 
+        name='Train score', line=dict(color='rgb(255, 0, 0)')
+    )
+    trace3 = go.Scatter(
+        x=train_sizes, y=val_means+val_stds, 
+        fill=None, mode='lines', line=dict(width=0), 
+        showlegend=False, hoverinfo='skip'
+    )
+    trace4 = go.Scatter(
+        x=train_sizes, y=val_means-val_stds, 
+        fill='tonexty', mode='none',
+        fillcolor='rgba(0, 0, 255, 0.2)', showlegend=False, hoverinfo='skip'
+    )
+    trace5 = go.Scatter(
+        x=train_sizes, y=val_means, fill=None, mode='lines', 
+        name='Cross-validation score', line=dict(color='rgb(0, 0, 255)')
     )
     width = kwargs.get('width', 900)
     height = kwargs.get('height', 700)
-    layout = go.Layout(title=title, width=width, height=height)
-    fig = go.Figure(data=[trace1, trace2], layout=layout)
+    layout = go.Layout(
+        title=title, width=width, height=height,
+        xaxis=dict(title='Training data number'),
+        yaxis=dict(title='Score')
+    )
+    if ylim is not None:
+        layout.yaxis.range = [*ylim]
+    fig = go.Figure(data=[trace0, trace1, trace2, trace3, trace4, trace5], layout=layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
     plty.iplot(fig)

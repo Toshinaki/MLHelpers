@@ -179,3 +179,17 @@ def explained_variance(X: Optional[np.array] = None, raito: bool = False, cumula
         cum_var_exp = np.cumsum(var_exp) # Cumulative explained variance
         return var_exp, cum_var_exp
     return var_exp
+
+# ## probability classification
+# def ground_proba_comparison(model, X, y, class_names, feature_names):
+#     y_pred = model.predict_proba(X)
+#     if not isinstance(X, pd.DataFrame):
+#         X = pd.DataFrame(X, columns=feature_names)
+#     ps = ['p_'+cname for cname in class_names]
+#     comp = pd.concat([X, pd.DataFrame(y_pred, columns=ps)], axis=1, ignore_index=True)
+#     print(comp)
+#     comp[ps] = comp[ps].applymap('{:.2%}'.format)
+#     print(comp)
+#     print(y)
+#     comp['GroundTruth'] = class_names[y]
+#     return comp
