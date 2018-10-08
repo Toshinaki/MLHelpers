@@ -5,6 +5,9 @@ import plotly.graph_objs as go
 import plotly.tools as tls
 import plotly.figure_factory as ff
 import matplotlib.pyplot as plt
+from graphviz import Source
+from sklearn.tree import export_graphviz
+from sklearn.base import clone
 
 ## colorlover colors:
 ## https://plot.ly/ipython-notebooks/color-scales/
@@ -12,9 +15,8 @@ import matplotlib.pyplot as plt
 ## 'Blackbody', 'Bluered', 'Blues', 'Earth', 'Electric', 'Greens', 'Greys','Hot',
 ## 'Jet', 'Picnic', 'Portland', 'Rainbow', 'RdBu', 'Reds', 'Viridis', 'YlGnBu', 'YlOrRd'
 ###############################################################################
-## Plotly functions
+## Helper functions
 ###############################################################################
-## basics
 def make_colorscale(
         clname:     str = '3,qual,Paired', 
         n:          Optional[int] = None, 
@@ -22,107 +24,66 @@ def make_colorscale(
     cnum, ctype, cname = clname.split(',')
     colors = cl.scales[cnum][ctype][cname]
     if n and n > int(cnum): 
-        n = n // 10 * 10
-        colors = cl.to_rgb(cl.interp(colors, n))
+        colors = cl.to_rgb(cl.interp(colors, (n // 10 + 1) * 10))
     else:
         n = len(colors)
     if reverse: colors = colors[::-1]
-    return [[i/(n-1), c] for i, c in  enumerate(colors)]
+    n_colors = len(colors)
+    step = n_colors // n
+    return [[i/(n-1), c] for i, c in  enumerate(colors) if (i+1) % step == 0]
 
-#######################
-def plotly_df_categorical_bar(
+###############################################################################
+## Plotly DataFrame plot functions
+###############################################################################
+## General ################################################
+
+## Numerical - Histograms and Scatters #####################
+def plotly_df_hists(
         df:         pd.DataFrame, 
         columns:    Optional[Iterable[str]] = None, 
-        ncols:      int = 4, 
-        title:      str = 'bar_charts', 
+        subplot:    bool = True,
+        ncols:      Optional[int] = None,
+        barmode:    str = 'group',
+        title:      str = 'Bar charts',  
         **kwargs) -> None:
-    '''Docstring of `plotly_df_categorical_bar`
+    '''Docstring of `plotly_df_hists`
 
-    Plot categorical columns of given DataFrame with plotly.
+    Plot histograms of DataFrame columns with plotly.
 
-    Args:
-        df: A pandas DataFrame.
-        columns: The column names. Optional.
-            If omitted, plot all non-numerical columns.
-        ncols: Number of subplots of every row.
-        title: Save the plot with this name.
-    '''
-    try:
-        columns = list(columns)
-    except TypeError:
-        columns = df.select_dtypes(include=[object]).columns.tolist()
-
-    nrows = int(np.ceil(len(columns) / ncols))
-    fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=columns, print_grid=False)
-    for i in range(nrows):
-        for j in range(ncols):
-            try:
-                s = df[columns[ncols * i + j]].value_counts()
-            except:
-                break
-            trace = go.Bar(x=s.index, y=s.values, name=s.name)
-            fig.append_trace(trace, i+1, j+1)
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(title=title, width=width, height=height)
-    fig['layout'].update(layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
-
-def plotly_df_numerical_hist(
-        df:         pd.DataFrame, 
-        columns:    Optional[Iterable[str]] = None, 
-        ncols:      int = 4, 
-        title:      str = 'histograms', 
-        **kwargs) -> None:
-    '''Docstring of `plotly_df_numerical_hist`
-
-    Plot numerical columns of given DataFrame with plotly.
+    Basicly same with `plotly_hists`.
 
     Args:
         df: A pandas DataFrame.
         columns: The column names. Optional.
             If omitted, plot all numerical columns.
-        ncols: Number of subplots of every row.
-        filename: Save the plot with this name.
-    
-    Todo:
-        binsize
-        default columns
+        subplot: Whether to plot all data as subplots or not.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        barmode: 'stack', 'group', 'overlay' or 'relative'.
+            Ignored when `subplots` is `True`.
+        title: Save the plot with this name.
     '''
     try:
         columns = list(columns)
     except TypeError:
         columns = df.select_dtypes(include=['number']).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    datasets = df[columns]
 
-    nrows = int(np.ceil(len(columns) / ncols))
-    fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=columns, print_grid=False)
-    
-    for i in range(nrows):
-        for j in range(ncols):
-            try:
-                s = df[columns[ncols * i + j]]
-            except:
-                break
-            start = s.min()
-            end = s.max()
-            bin_size = (end - start) / kwargs.get('bin_num', 10)
-            trace = go.Histogram(x=s, xbins=dict(start=start, end=end, size=bin_size), name=s.name, autobinx=False)
-            fig.append_trace(trace, i+1, j+1)
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(title=title, width=width, height=height)
-    fig['layout'].update(layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    return plotly_hists(datasets, orientation='vertical', names=columns, subplot=subplot, ncols=ncols, barmode=barmode, title=title, **kwargs)
 
-def plotly_df_grouped_hist(
+def plotly_df_hist_grouped(
         df:         pd.DataFrame, 
-        col1:       str, 
-        col2:       str, 
-        ncols:      int = 4, 
+        col:        str, 
+        groupby:    str, 
+        subplot:    bool = False,
+        ncols:      Optional[int] = None, 
+        barmode:    str = 'group',
         normdist:   bool = False, 
-        title:      str = 'Histograms', 
+        title:      Optional[str] = None, 
         **kwargs) -> None:
     '''Docstring of `plotly_df_grouped_hist`
 
@@ -130,14 +91,22 @@ def plotly_df_grouped_hist(
 
     Args:
         df: A pandas DataFrame.
-        col1: Name of the column that the unique values of which
+        col: Name of the column that the unique values of which
             will be used for grouping.
-        col2: Name of the column that will be grouped.
+        groupby: Name of the column that will be grouped.
+        subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row.
         normdist: Whether plot the normal distribution with mean 
             and std of given data.
         title: Save the plot with this name.
     '''
+    grouped = df.groupby(groupby)
+    groups = grouped.groups.keys()
+    datasets = [grouped.get_group(g)[col] for g in groups]
+    return plotly_hists(datasets, names=groups, subplot=subplot, ncols=ncols, barmode=barmode, title=(title or 'Histogram {} grouped by {}'.format(col, groupby)))
+
+
+''' normal distribution
     vals, data = grouped_col(df, col1, col2)
     nrows = int(np.ceil(len(vals) / ncols))
     fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=[str(v) for v in vals],
@@ -176,49 +145,132 @@ def plotly_df_grouped_hist(
     fig['layout'].update(layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
     plty.iplot(fig)
+'''
+
+def plotly_df_boxes(
+        df:         pd.DataFrame, 
+        columns:    Optional[Iterable[str]] = None, 
+        subplot:    bool = True,
+        ncols:      Optional[int] = None,
+        title:      str = 'Bar charts',  
+        **kwargs) -> None:
+    '''Docstring of `plotly_df_boxes`
+
+    Plot box plots of DataFrame columns with plotly.
+
+    Basicly same with `plotly_boxes`.
+
+    Args:
+        df: A pandas DataFrame.
+        columns: The column names. Optional.
+            If omitted, plot all numerical columns.
+        subplot: Whether to plot all data as subplots or not.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        title: Save the plot with this name.
+    '''
+    try:
+        columns = list(columns)
+    except TypeError:
+        columns = df.select_dtypes(include=['number']).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    datasets = df[columns]
+
+    return plotly_boxes(datasets, orientation='vertical', names=columns, subplot=subplot, ncols=ncols, title=title, **kwargs)
     
-#######################
+def plotly_df_box_grouped(
+        df:         pd.DataFrame, 
+        col:        str, 
+        groupby:    str, 
+        subplot:    bool = False,
+        ncols:      Optional[int] = None,
+        title:      Optional[str] = None,
+        **kwargs) -> None:
+    '''Docstring of `plotly_df_grouped_box`
+
+    Plot box-plot of one column grouped by the unique value of another column with plotly.
+
+    Args:
+        df: A pandas DataFrame.
+        col: Name of the column that the unique values of which
+            will be used for grouping.
+        groupby: Name of the column that will be grouped.
+        title: Save the plot with this name.
+    '''
+    grouped = df.groupby(groupby)
+    groups = grouped.groups.keys()
+    datasets = [grouped.get_group(g)[col] for g in groups]
+    return plotly_boxes(datasets, names=groups, subplot=subplot, ncols=ncols, title=(title or 'Histogram {} grouped by {}'.format(col, groupby)))
+    # # df = df[[col1, col2]].dropna()
+    # # cols = df[col1].unique()
+    # # traces = [go.Box(y=df[df[col1] == col][col2], boxmean='sd', name=col) for col in cols]
+    # vals, data = grouped_col(df, col1, col2)
+    # traces = [go.Box(y=d, boxmean='sd', name=v) for v,d in zip(vals, data)]
+
+    # width = kwargs.get('width', 900)
+    # height = kwargs.get('height', 700)
+    # layout = go.Layout(
+    #     title='{} boxes grouped by {}'.format(col2, col1),
+    #     yaxis=dict(title=col2),
+    #     xaxis=dict(title=col1),
+    #     width=width,
+    #     height=height
+    # )
+    # fig = go.Figure(data=traces, layout=layout)
+    # kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    # plty.iplot(fig)
+
 def plotly_df_scatter(
         df:         pd.DataFrame, 
-        col1:       str, 
-        col2:       str, 
+        colx:       str, 
+        coly:       str, 
         size:       Union[str, float] = 6, 
         sizescale:  int = 100, 
         color:      str = None, 
         colorscale: Union[str, List[list]] = '10,div,RdYlBu', 
         title:      str = 'DataFrame Scatter',
         **kwargs) -> None:
-    if isinstance(size, str):
-        assert size in df, 'Column for sizing with name {} is not in given DataFrame'.format(size)
-        size = df[size] / sizescale
-    if color in df:
-        color = df[color]
-    if isinstance(colorscale, str):
-        colorscale =  make_colorscale(colorscale, reverse=kwargs.get('reverse', False))
-    trace = go.Scattergl(
-        x=df[col1], 
-        y=df[col2], 
-        mode='markers', 
-        marker=dict(
-            opacity=kwargs.get('marker_opacity', 0.5), 
-            size=size, 
-            color=color,
-            colorscale=colorscale,
-            showscale=(not color is None) and kwargs.get('showscale', True)
-        )
-    )
-    data = [trace]
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(
-        title=title,
-        width=width,
-        height=height
-    )
-    fig = go.Figure(data=data, layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    '''Docstring of `plotly_scatter`
 
+    Plot scatter plot of two columns of given DataFrame with plotly.
+
+    Basicly same with `plotly_scatter`.
+
+    Args:
+        df: A pandas DataFrame.
+        colx: Name of column; x axis.
+        coly: Name of column; y axis.
+        size: Size of markers. 
+            A column of given Dataframe, a float or a list.
+            When passed a column name, the column will be used
+            to determine the sizes of corresponding markers.
+            If passed an iterable, it must be the same length 
+            as datasets.
+        sizescale: Ignored if `size` is a single value.
+            A function to scale `size` to more reasonable values.
+        color: Marker color. A column of given Dataframe, any
+            kind of valid color string, or a numeric list.
+            When passed a column name, the column will be used
+            to determine the colors of corresponding markers.
+            If list, the value will be used with `colorscale`.
+        colorscale: Ignored when `color` is not a list.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
+    '''
+    assert colx in df, 'Column {} not in given dataframe'.format(colx)
+    assert coly in df, 'Column {} not in given dataframe'.format(coly)
+    x = df[colx].values
+    y = df[coly].values
+    if isinstance(size, str) and size in df:
+        size = df[size]
+    if isinstance(color, str) and color in df:
+        color = df[color]
+    return plotly_scatter(x, y, size, sizescale, color, colorscale, title, **kwargs)
+    
 def plotly_df_scatter_matrix(
         df:         pd.DataFrame,
         columns:    Optional[List[str]] = None,
@@ -228,313 +280,235 @@ def plotly_df_scatter_matrix(
         colorscale: Union[str, list] = '10,div,RdYlBu',
         title:      str = 'Scatter Matrix',
         **kwargs) -> None:
-    if columns is None:
+    '''Docstring of `plotly_df_scatter`
+
+    Plot scatter matrix of any number of given columns with plotly.
+
+    Basicly same with `plotly_scatter_matrix`.
+
+    Args:
+        df: A pandas DataFrame.
+        columns: Columns' names for plotting.
+            If `None`, use all numerical columns.
+        size: Marker size. A column of given Dataframe, a float,
+            or a numerical list.
+            When passed a column name, the column will be used
+            to determine the sizes of corresponding markers.
+            If a list, it must be the same length as datasets.
+        sizescale: Ignored when `size` is a float.
+            Scale the Dataframe to fit markers' size to the plot.
+        color: Marker color. A column of given Dataframe, any
+            kind of valid color string, or a numerical list.
+            When passed a column name, the column will be used
+            to determine the colors of corresponding markers.
+            If list, the value will be used with `colorscale`.
+        colorscale: Ignored when `color` is not a column of 
+            given Dataframe.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.    
+    '''
+    try:
+        columns = list(columns)
+    except TypeError:
         columns = df.select_dtypes(include=['number']).columns.tolist()
     else:
         for col in columns:
             assert col in df, 'Column {} is not in given DataFrame.'.format(col)
-    if isinstance(size, str):
-        assert size in df, 'Column for sizing with name {} is not in given DataFrame'.format(size)
-        size = df[size] / sizescale
-    if color in df:
+    if isinstance(size, str) and size in df:
+        size = df[size]
+    if isinstance(color, str) and color in df:
         color = df[color]
-    if isinstance(colorscale, str):
-        colorscale =  make_colorscale(colorscale, reverse=kwargs.get('reverse', False))
-    nrows = ncols = len(columns)
-    data = [go.Splom(
-        dimensions=[{'label': col, 'values':df[col]} for col in columns],
-        marker=dict(
-            opacity=kwargs.get('marker_opacity', 0.5),
-            size=size, 
-            color=color,
-            colorscale=colorscale,
-            showscale=kwargs.get('showscale', True)
-        ),
-        diagonal={'visible': False},
-    )]
-    width = kwargs.get('width', 1000)
-    height = kwargs.get('height', 800)
-    # layout = go.Layout(
-    #     title=title,
-    #     width=width,
-    #     height=height,
-    #     dragmode=kwargs.get('dragmode', 'select'),
-    #     hovermode='closest',
-    #     plot_bgcolor=(not color is None) and kwargs.get('plot_bgcolor', None),
-    # )
+    
+    datasets = df[columns]
+    return plotly_scatter_matrix(datasets, orientation='vertical', names=columns, size=size, sizescale=sizescale, color=color, colorscale=colorscale, title=title, **kwargs)
 
-    for i, col in enumerate(columns):
-        start = df[col].min()
-        end = df[col].max()
-        bin_size = (end - start) / kwargs.get('bin_num', 20)
-        trace = go.Histogram(
-            x=df[col], xbins=dict(start=start, end=end, size=bin_size), 
-            name=col, autobinx=False,
-            xaxis='x{}'.format(i+ncols+1),
-            yaxis='y{}'.format(i+ncols+1)
-        )
-        data.append(trace)
-    hist_pos = kwargs.get('hist_pos', 0.15)
-    layout = go.Layout({
-        'xaxis{}'.format(i+ncols+1): {'domain': [1-(i+1)/ncols+hist_pos/ncols, 1-i/ncols-hist_pos/ncols], 'anchor': 'x{}'.format(i+ncols+1)}
-    for i in range(ncols)})
-    layout.update({
-        'yaxis{}'.format(i+ncols+1): {'domain': [i/ncols+hist_pos/ncols, (i+1)/ncols-hist_pos/ncols], 'anchor': 'y{}'.format(i+ncols+1)}
-    for i in range(ncols)})
-    layout.update(dict(
-        title=title,
-        width=width,
-        height=height,
-        dragmode=kwargs.get('dragmode', 'select'),
-        hovermode='closest',
-        plot_bgcolor=(not color is None) and kwargs.get('plot_bgcolor', None),
-        showlegend=False
-    ))
-
-    fig = go.Figure(data=data, layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
-#######################
-def plotly_df_crosstab_heatmap(
+def plotly_df_clusters(
         df:         pd.DataFrame, 
-        col1:       str, 
-        col2:       str, 
-        ttype:      str = 'count', 
-        axes_title: bool = False,
-        title:      str = 'crosstab_heatmap',
+        colx:       str, 
+        coly:       str, 
+        collabel:   str, 
+        names:      dict = None,
+        sizes=6,
+        colorscale: Union[str, list] = '12,qual,Paired', 
+        title:      str = 'DataFrame 2D Clusters',  
         **kwargs) -> None:
-    '''Docstring of `plotly_df_crosstab_heatmap`
+    '''Docstring of `plotly_df_2d_clusters`
+
+    Plot scatter plots of two columns grouped by the unique values
+    of a third column with plotly.
+
+    Basicly same with `plotly_clusters`.
+
+    Args:
+        df: A pandas DataFrame.
+        colx: The column name of x values.
+        coly: The column name of y values.
+        collabel: The column name to group x and y on which.
+        names: Lables' names. Optional.
+        sizes: A single number or a number list.
+            Marker sizes of each cluster.
+        colorscale: Colors of clusters. 
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Title of the plot.
+    '''
+    assert colx in df, 'Column {} not in given dataframe'.format(colx)
+    assert coly in df, 'Column {} not in given dataframe'.format(coly)
+    assert collabel in df, 'Column {} not in given dataframe'.format(collabel)
+    x = df[colx].values
+    y = df[coly].values
+    label = df[collabel].values
+
+    return plotly_clusters(x, y, label, names=names, sizes=sizes, colorscale=colorscale, title=title, **kwargs)
+
+def plotly_df_qq_plots(
+        df:         pd.DataFrame,
+        columns:    Optional[List[str]] = None,
+        ncols:      Optional[int] = None,
+        title:      str = 'DaraFrame QQ plots', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_qq_plots`
+
+    Plot QQ-plots of all the given data with plotly.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Data names corresponding to items in data. Optional.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        title: Save the plot with this name.
+    '''
+    try:
+        columns = list(columns)
+    except TypeError:
+        columns = df.select_dtypes(include=['number']).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    
+    datasets = df[columns]
+    return plotly_qq_plots(datasets, orientation='vertical', names=columns, ncols=ncols, title=title, **kwargs)
+    
+## Categorical - Bars and contingency tables #####################
+def plotly_df_bars(
+        df:         pd.DataFrame, 
+        columns:    Optional[Iterable[str]] = None, 
+        subplot:    bool = False,
+        ncols:      Optional[int] = None,
+        barmode:    str = 'group',
+        title:      str = 'Bar charts', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_df_bars`
+
+    Plot bar charts of DataFrame columns with plotly.
+
+    Basicly same with `plotly_bars`.
+
+    Args:
+        df: A pandas DataFrame.
+        columns: The column names. Optional.
+            If omitted, plot all categorical columns.
+        subplot: Whether to plot all data as subplots or not.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        barmode: 'stack', 'group', 'overlay' or 'relative'.
+            Ignored when `subplots` is `True`.
+        title: Save the plot with this name.
+    '''
+    try:
+        columns = list(columns)
+    except TypeError:
+        columns = df.select_dtypes(include=[object]).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    datasets = df[columns]
+    return plotly_bars(datasets, orientation='vertical', names=columns, subplot=subplot, ncols=ncols, barmode=barmode, title=title, **kwargs)
+
+def plotly_df_crosstable(
+        df:         pd.DataFrame, 
+        columns:    Optional[Iterable[str]] = None, 
+        half:       bool = False,
+        ttype:      str = 'count', 
+        title:      str = 'DataFrame Contigency Table',
+        **kwargs) -> None:
+    '''Docstring of `plotly_df_crosstable`
 
     Plot contigency table of two given columns with plotly heatmap.
 
+    Basicly same with `plotly_crosstable`
+
     Args:
         df: A pandas DataFrame.
-        col1: Index of the contigency table.
-        col2: Column of the contigency table.
+        columns: The column names. Optional.
+            If omitted, plot all categorical columns.
+        half: Stacked bar plot or heatmap.
         ttype: Determines how the contigency table is calculated.
             'count': The counts of every combination.
-            'colper': The percentage of every combination to the 
+            'percent': The percentage of every combination to the 
             sum of every rows.
             Defaults to 'count'.
-        axes_title: Whether to show the axis' title or not.
+        colorscale: Heatmap colorscale. Avaiable values are 
+            'Blackbody', 'Bluered', 'Blues', 'Earth', 'Electric', 'Greens',
+            'Greys', 'Hot', 'Jet', 'Picnic', 'Portland', 'Rainbow', 'RdBu',
+            'Reds', 'Viridis', 'YlGnBu', 'YlOrRd'.
         title: Save the plot with this name.
     '''
-    ct = df_contingency_table(df, col1, col2, ttype=ttype)
-    fig = ff.create_annotated_heatmap(z=ct.values, x=list(ct.columns), y=list(ct.index))
-    fig['layout']['title'] = '{}-{}'.format(ct.index.name, ct.columns.name)
-    fig['layout']['xaxis']['title'] = axes_title and ct.columns.name
-    fig['layout']['yaxis']['title'] = axes_title and ct.index.name
-    fig['layout']['xaxis']['side'] = 'bottom'
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    fig.layout.width = width
-    fig.layout.height = height
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    try:
+        columns = list(columns)
+    except TypeError:
+        columns = df.select_dtypes(include=[object]).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    datasets = df[columns]
+    return plotly_crosstable(datasets, orientation='vertical', names=columns, half=half, ttype=ttype, title=title, **kwargs)
 
-def plotly_df_crosstab_heatmap_matrix(
+def plotly_df_crosstable_stacked(
         df:         pd.DataFrame, 
-        columns:    List[str], 
+        columns:    Optional[Iterable[str]] = None, 
+        half:       bool = False,
         ttype:      str = 'count', 
-        colorscale: Union[str, list] = 'Greens', 
-        title:      str = 'Contingency Table Matrix',
+        title:      str = 'DataFrame Contigency Table',
         **kwargs) -> None:
-    '''Docstring of `plotly_df_crosstab_heatmap_matrix`
+    '''Docstring of `plotly_df_crosstable_stacked`
 
-    Plot contigency tables of every two given columns with plotly heatmap.
+    Plot contigency table of two given columns with plotly heatmap.
+
+    Basicly same with `plotly_crosstable_stacked`
 
     Args:
         df: A pandas DataFrame.
-        columns: The column names.
+        columns: The column names. Optional.
+            If omitted, plot all categorical columns.
+        half: Stacked bar plot or heatmap.
         ttype: Determines how the contigency table is calculated.
             'count': The counts of every combination.
-            'colper': The percentage of every combination to the 
+            'percent': The percentage of every combination to the 
             sum of every rows.
             Defaults to 'count'.
-        colorscale: The color scale to use.
+        colorscale: Heatmap colorscale. Avaiable values are 
+            'Blackbody', 'Bluered', 'Blues', 'Earth', 'Electric', 'Greens',
+            'Greys', 'Hot', 'Jet', 'Picnic', 'Portland', 'Rainbow', 'RdBu',
+            'Reds', 'Viridis', 'YlGnBu', 'YlOrRd'.
         title: Save the plot with this name.
     '''
-    nrows = ncols = len(columns)
-    fig = tls.make_subplots(rows=nrows, cols=ncols, 
-                            shared_xaxes=True, shared_yaxes=True, 
-                            vertical_spacing=0.01, horizontal_spacing=0.01, print_grid=False)
-    width = kwargs.get('width', 950)
-    height = kwargs.get('height', 750)
-    # layout = go.Layout(title=title, annotations=[], width=width, height=height)
-    # for k in range(nrows):
-    #     layout['xaxis{}'.format(k+1)]['title'] = columns[k]
-    #     layout['yaxis{}'.format(k+1)]['title'] = columns[k]
-    #     layout['xaxis{}'.format(k+1)]['type'] = 'category'
-    #     layout['yaxis{}'.format(k+1)]['type'] = 'category'
-    #     layout['yaxis{}'.format(k+1)]['autorange'] = 'reversed'
-    layout = {'xaxis{}'.format(k+1): {'title': columns[k], 'type': 'category'} for k in range(nrows)}
-    layout.update({'yaxis{}'.format(k+1): {'title': columns[k], 'type': 'category', 'autorange': 'reversed'} for k in range(nrows)})
-    layout.update(dict(
-        title=title, annotations=[], width=width, height=height
-    ))
-    layout = go.Layout(layout)
-    for i in range(nrows):
-        for j in range(ncols):
-            ct = df_contingency_table(df, columns[i], columns[j], ttype=ttype)
-            
-            annheat = ff.create_annotated_heatmap(z=ct.values, x=list(ct.columns), y=list(ct.index))
-            trace = annheat['data'][0]
-            trace['colorscale'] = colorscale
+    try:
+        columns = list(columns)
+    except TypeError:
+        columns = df.select_dtypes(include=[object]).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    datasets = df[columns]
+    return plotly_crosstable_stacked(datasets, orientation='vertical', names=columns, half=half, ttype=ttype, title=title, **kwargs)
 
-            annotations = annheat['layout']['annotations']
-            for ann in annotations:
-                ann['xref'] = 'x{}'.format(j+1)
-                ann['yref'] = 'y{}'.format(i+1)
-                ann['font']['color'] = float(ann['text']) / df.shape[0] > 0.5 and 'rgb(255,255,255)' or 'rgb(0,0,0)'
-                if ttype == 'colper': ann['text'] = ann['text'] + '%'
-            layout['annotations'] = list(layout['annotations']).extend(annotations)
-            
-            fig.append_trace(trace, i+1, j+1)    
-            
-    fig['layout'].update(layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
-
-def plotly_df_crosstab_stacked(
-        df:     pd.DataFrame, 
-        col1:   str, 
-        col2:   str, 
-        title:  str = 'crosstab_stacked_bar',
-        **kwargs) -> None:
-    '''Docstring of `plotly_df_crosstab_stacked`
-
-    Plot stacked bar of two given columns' contigency table with plotly heatmap.
-
-    Args:
-        df: A pandas DataFrame.
-        col1: Index of the contigency table.
-        col2: Column of the contigency table.
-        title: Save the plot with this name.
-    '''
-    ct = df_contingency_table(df, col1, col2)
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(
-        barmode = 'stack',
-        title = '{}-{}'.format(ct.index.name, ct.columns.name),
-        yaxis = dict(title=ct.columns.name),
-        annotations = [
-            dict(
-                x=1.12,
-                y=1.05,
-                text='Pclass',
-                showarrow=False,
-                xref="paper",
-                yref="paper",
-            )
-        ],
-        width=width,
-        height=height
-    )
-    ct.index = ct.index.astype(str) + ' <br>(n=' + ct['Total'].astype(str) + ')'
-    ct.columns = ct.columns.astype(str) + ' <br>(n=' + ct.iloc[-1].astype(str) + ')'
-    ct = (ct / ct.iloc[-1] * 100).round().astype(int)
-    data = [go.Bar(x=ct.iloc[i][:-1], y=ct.columns[:-1], name=ct.index[i], orientation='h') for i in range(ct.index.shape[0]-1)]
-    
-    fig = go.Figure(data=data, layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
-
-def plotly_df_crosstab_stacked_matrix(
-        df:         pd.DataFrame, 
-        columns:    List[str], 
-        colorscale: Union[str, list] = 'Greens', 
-        title:      str = 'Stacked Bar Matrix',
-        **kwargs) -> None:
-    '''Docstring of `plotly_df_crosstab_stacked_matrix`
-
-    Plot stacked bars of every two given columns' contigency table with plotly heatmap.
-
-    Args:
-        df: A pandas DataFrame.
-        columns: The column names.
-        colorscale: The color scale to use.
-        title: Save the plot with this name.
-    '''
-    nrows = ncols = len(columns)
-    fig = tls.make_subplots(rows=nrows, cols=ncols, 
-                            shared_xaxes=True, shared_yaxes=True, 
-                            vertical_spacing=0.01, horizontal_spacing=0.01, print_grid=False)
-    width = kwargs.get('width', 950)
-    height = kwargs.get('height', 750)
-    # layout = go.Layout(title=title, annotations=[], 
-    #                     width= width, height=height, barmode='stack',
-    #                     showlegend=False, hoverlabel={'bgcolor': 'black', 'font': {'color': 'white'}, 'namelength': -1})
-    # for k in range(nrows):
-    #     layout['xaxis{}'.format(k+1)]['title'] = columns[k]
-    #     layout['yaxis{}'.format(k+1)]['title'] = columns[k]
-    #     #layout['xaxis{}'.format(k+1)]['type'] = 'category'
-    #     layout['yaxis{}'.format(k+1)]['type'] = 'category'
-    #     layout['yaxis{}'.format(k+1)]['autorange'] = 'reversed'
-    layout = {'xaxis{}'.format(k+1): {'title': columns[k]} for k in range(nrows)}
-    layout.update({'yaxis{}'.format(k+1): {'title': columns[k], 'type': 'category', 'autorange': 'reversed'} for k in range(nrows)})
-    layout.update(dict(
-        title=title, annotations=[], 
-        width= width, height=height, barmode='stack',
-        showlegend=False, hoverlabel={'bgcolor': 'black', 'font': {'color': 'white'}, 'namelength': -1}
-    ))
-    layout = go.Layout(layout)
-    for i in range(nrows):
-        for j in range(ncols):
-            ct = df_contingency_table(df, columns[j], columns[i])
-            ct.index = ct.index.astype(str) + ' <br>(n=' + ct['Total'].astype(str) + ')'
-            ct.columns = ct.columns.astype(str) + ' <br>(n=' + ct.iloc[-1].astype(str) + ')'
-            ct = (ct / ct.iloc[-1] * 100).round().astype(int)
-            data = [go.Bar(x=ct.iloc[k][:-1], y=ct.columns[:-1], name=ct.index[k], orientation='h') for k in range(ct.index.shape[0]-1)]
-            
-            for trace in data:
-                fig.append_trace(trace, i+1, j+1)
-    
-    fig['layout'].update(layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
-    
-#######################
-def plotly_df_box(
-        df:     pd.DataFrame, 
-        col1:   str, 
-        col2:   str, 
-        title:  str = 'Box Plot',
-        **kwargs) -> None:
-    '''Docstring of `plotly_df_crosstab_stacked`
-
-    Plot box-plot of one column grouped by the unique value of another column with plotly.
-
-    Args:
-        df: A pandas DataFrame.
-        col1: Name of the column that the unique values of which
-            will be used for grouping.
-        col2: Name of the column that will be grouped.
-        title: Save the plot with this name.
-    '''
-    # df = df[[col1, col2]].dropna()
-    # cols = df[col1].unique()
-    # traces = [go.Box(y=df[df[col1] == col][col2], boxmean='sd', name=col) for col in cols]
-    vals, data = grouped_col(df, col1, col2)
-    traces = [go.Box(y=d, boxmean='sd', name=v) for v,d in zip(vals, data)]
-
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(
-        title='{} boxes grouped by {}'.format(col2, col1),
-        yaxis=dict(title=col2),
-        xaxis=dict(title=col1),
-        width=width,
-        height=height
-    )
-    fig = go.Figure(data=traces, layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
-    
 def plotly_df_chi_square_matrix(
         df:             pd.DataFrame, 
-        columns:        List[str], 
-        cell_height:    int = 45,
+        columns:        Optional[Iterable[str]] = None, 
         title:          str = 'Chi-Square Matrix',
         **kwargs) -> None:
     '''Docstring of `plotly_df_chi_square_matrix`
@@ -545,20 +519,26 @@ def plotly_df_chi_square_matrix(
 
     Args:
         df: A pandas DataFrame.
-        columns: A list contains columns to run chi-square test with.
+        columns: The column names. Optional.
+            If omitted, plot all categorical columns.
         title: Save the plot with this name.
     '''
-    data = np.c_[columns, df_chi_square_matrix(df, columns).values]
-    data = np.r_[[['']+columns], data]
-    fig = ff.create_table(data, height_constant=cell_height, index=True)
-    fig.layout.title = title
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    fig.layout.width = width
-    fig.layout.height = height
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    try:
+        columns = list(columns)
+    except TypeError:
+        columns = df.select_dtypes(include=[object]).columns.tolist()
+    else:
+        for col in columns:
+            assert col in df, 'Column {} is not in given DataFrame.'.format(col)
+    datasets = df[columns]
+    return plotly_chi_square_matrix(datasets, orientation='vertical', names=columns, title=title, **kwargs)
 
+
+
+###############################################################################
+## Plotly Array plot functions
+###############################################################################
+## General ################################################
 def plotly_describes(
         data:   list, 
         names:  list = [], 
@@ -590,103 +570,396 @@ def plotly_describes(
     fig.layout.height = height
     fig.layout.title = title
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
 
-def plotly_qq_plots(
-        data:   list, 
-        names:  list = [], 
-        ncols:  int = 4,
-        title:  str = 'QQ plots',
+## Numerical - Histograms and Scatters #####################
+def plotly_hists(
+        datasets:   Union[list, np.array], 
+        names:      Optional[Iterable[str]] = None, 
+        subplot:    bool = False,
+        ncols:      Optional[int] = None,
+        barmode:    str = 'group',
+        title:      str = 'Histogram', 
         **kwargs) -> None:
-    '''Docstring of `plotly_describes`
+    '''Docstring of `plotly_hists`
 
-    Plot QQ-plots of given data with plotly.
+    Plot histograms with plotly.
 
     Args:
-        data: A list of numerical data.
-        names: A list contains names corresponding to data.
-        ncols: Number of subplots of every row.
+        datasets: A list of data to plot.
+        names: Data names corresponding to items in data. Optional.
+        subplot: Whether to plot all data as subplots or not.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        barmode: 'stack', 'group', 'overlay' or 'relative'.
+            Ignored when `subplots` is `True`.
         title: Save the plot with this name.
     '''
-    ndata = len(data)
-    names = names or ['']*ndata
-    nrows = int(np.ceil(ndata / ncols))
-    fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=names, 
-                            vertical_spacing=0.1, horizontal_spacing=0.1, print_grid=False)
-    for i in range(nrows):
-        for j in range(ncols):
-            try:
-                p = stats.probplot(data[ncols * i + j])
-            except:
-                break
-            fig.append_trace(go.Scattergl(x=p[0][0], y=p[0][1], mode='markers'), i+1, j+1)
-            fig.append_trace(go.Scattergl(x=p[0][0], y=p[0][0]*p[1][0]+p[1][1]), i+1, j+1)
-    
     width = kwargs.get('width', 900)
     height = kwargs.get('height', 700)
-    layout = go.Layout(title=title, showlegend=False, width=width, height=height)
+    layout = go.Layout(title=title, width=width, height=height)
+    layout.update(kwargs.get('layout', {}))
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    hist_common_layout = kwargs.get('hist_common_layout', {})
+    hist_unique_layouts = kwargs.get('hist_unique_layout', [{}]*ndata)
+
+    # make traces for every data row
+    traces = []
+    for data, name, hist_layout in zip(datasets, names, hist_unique_layouts):
+        start = np.min(data)
+        end = np.max(data)
+        bin_size = np.ptp(data) / kwargs.get('bin_num', 10)
+        if kwargs.get('horizontal', False):
+            trace = go.Histogram(y=data, xbins=dict(start=start, end=end, size=bin_size), name=name, **hist_layout, **hist_common_layout)
+        else:
+            trace = go.Histogram(x=data, xbins=dict(start=start, end=end, size=bin_size), name=name, **hist_layout, **hist_common_layout)
+        traces.append(trace)
+    
+    if subplot:
+        if ncols is None:
+            nrows = int(np.floor(np.power(ndata, 0.5)))
+            ncols = int(np.ceil(ndata / nrows))
+        else:
+            nrows = int(np.ceil(ndata / ncols))
+        fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=names, 
+                                vertical_spacing=0.1, horizontal_spacing=0.1, print_grid=False)
+        for i, trace in enumerate(traces):
+            fig.append_trace(trace, i // ncols + 1, i % ncols + 1)
+    else:
+        if ndata > 1:
+            assert barmode in ['stack', 'group', 'overlay', 'relative'], 'Invalid barmode "{}".'.format(barmode)
+            layout.barmode = barmode
+        fig = go.Figure(data=traces)
+    
     fig['layout'].update(layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
 
-#######################
-def plotly_df_2d_clusters(
-        df:     pd.DataFrame, 
-        x:      str, 
-        y:      str, 
-        l:      str, 
-        title:  str = '2D Clusters', 
-        colors: Union[str, list] = '12,qual,Paired', 
+def plotly_boxes(
+        datasets:   Union[list, np.array], 
+        names:      Optional[Iterable[str]] = None, 
+        subplot:    bool = False,
+        ncols:      Optional[int] = None,
+        title:      str = 'Histogram', 
         **kwargs) -> None:
-    '''Docstring of `plotly_df_2d_clusters`
+    '''Docstring of `plotly_hists`
 
-    Plot scatter plots of two columns grouped by the unique values
-    of a third column with plotly.
+    Plot histograms with plotly.
 
     Args:
-        df: A pandas DataFrame.
-        x: The column name of x values.
-        y: The column name of y values.
-        l: The column name to group x and y on which.
-        title: Title of the plot.
-        colors: Colors of every clusters. Accept a list of color strings
-        with same length as the number of clusters. Or a string that will
-        be passed to `make_colorscale` to make colors for every clusters.
+        datasets: A list of data to plot.
+        names: Data names corresponding to items in data. Optional.
+        subplot: Whether to plot all data as subplots or not.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        title: Save the plot with this name.
     '''
-    # group by unique values
-    dfs = dict(tuple(df[[x, y, l]].groupby(l)))
-    labels = np.unique(df[l])
-    n_labels = len(labels)
-    # check for colors
-    if isinstance(colors, str):
-        colors =  [c[1] for c in make_colorscale(colors, n=n_labels)]
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height)
+    layout.update(kwargs.get('layout', {}))
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
     else:
-        assert len(colors) == n_labels, 'Invalid colors. {} colors is needed.'.format(n_labels)
-    # add data points cluster by cluster
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    box_common_layout = kwargs.get('box_common_layout', {})
+    box_unique_layouts = kwargs.get('box_unique_layout', [{}]*ndata)
+    
+    # make traces for every data row
     traces = []
-    opacitys = [kwargs.get('inactive_opacity', 0.05),] * n_labels
-    line_width = [kwargs.get('inactive_line_width', 0.1),] * n_labels
+    for data, name, box_layout in zip(datasets, names, box_unique_layouts):
+        if kwargs.get('horizontal', False):
+            trace = go.Box(x=data, boxmean='sd', name=name, **box_layout, **box_common_layout)
+        else:
+            trace = go.Box(y=data, boxmean='sd', name=name, **box_layout, **box_common_layout)
+        traces.append(trace)
+    
+    if subplot:
+        if ncols is None:
+            nrows = int(np.floor(np.power(ndata, 0.5)))
+            ncols = int(np.ceil(ndata / nrows))
+        else:
+            nrows = int(np.ceil(ndata / ncols))
+        fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=names, 
+                                vertical_spacing=0.1, horizontal_spacing=0.1, print_grid=False)
+        for i, trace in enumerate(traces):
+            fig.append_trace(trace, i // ncols + 1, i % ncols + 1)
+    else:
+        fig = go.Figure(data=traces)
+    
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_scatter(
+        x,
+        y,
+        size = 6, 
+        sizescale:  Optional[callable] = None,
+        color = None, 
+        colorscale: Union[str, List[list]] = '10,div,RdYlBu',
+        title:      str = 'Scatter', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_scatter`
+
+    Plot scatters with plotly.
+
+    Args:
+        x: x axis.
+        y: y axis. `x` and `y` must have same length.
+        size: Size of markers. If passed an iterable, it must be 
+            the same length as datasets.
+        sizescale: Ignored if `size` is a single value.
+            A function to scale `size` to more reasonable values.
+        color: Marker color. A numeric list or any
+            kind of valid color string.
+            If list, the value will be used with `colorscale`.
+        colorscale: Ignored when `color` is not a list.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
+    '''
+    assert len(x) == len(y), 'Given data have different length. `x`:{}, `y`:{}'.format(len(x), len(y))
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height)
+    layout.update(kwargs.get('layout', {}))
+
+    if not isinstance(size, (int, float)):
+        sizescale = sizescale or (lambda array: (np.array(array) - np.min(array)) / np.ptp(array) * 30)
+        size = sizescale(size)
+    marker = dict(
+        opacity     = kwargs.get('marker_opacity', 0.5), 
+        size        = size, 
+        showscale   = False,
+        line        = dict(
+            width = kwargs.get('marker_line_width', 1),
+            color = kwargs.get('marker_line_color', 'rgb(0,0,0)')
+        )
+    )
+    if color is not None:
+        if not isinstance(color, str):
+            if isinstance(colorscale, str):
+                colorscale =  make_colorscale(colorscale, reverse=kwargs.get('colorscale_reverse', False))
+            marker['colorscale'] = colorscale
+            marker['showscale'] = kwargs.get('showscale', True)
+        marker['color'] = color
+    trace = go.Scattergl(
+        x=x, y=y, mode='markers',
+        marker=marker
+    )
+
+    fig = go.Figure(data=[trace])
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_scatter_matrix(
+        datasets,
+        names:      Optional[List[str]] = None,
+        size = 6, 
+        sizescale:  Optional[callable] = None,
+        color = None, 
+        colorscale: Union[str, List[list]] = '10,div,RdYlBu',
+        title:      str = 'Scatter Matrix',
+        **kwargs) -> None:
+    '''Docstring of `plotly_scatter_matrix`
+
+    Plot scatter matrix of any set of datasets with plotly.
+
+    The subplots from top left to bottom right on diagonal are replaced with histograms.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Names corresponding to items in datasets. Optional.
+        size: Size of markers. If passed an iterable, it must be 
+            the same length as datasets.
+        sizescale: Ignored if `size` is a single value.
+            A function to scale `size` to more reasonable values.
+        color: Marker color. A numeric list or any
+            kind of valid color string.
+            If list, the value will be used with `colorscale`.
+        colorscale: Ignored when `color` is not a list.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.    
+    '''
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height)
+    layout.update(kwargs.get('layout', {}))
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    hist_common_layout = kwargs.get('hist_common_layout', {})
+    hist_unique_layouts = kwargs.get('hist_unique_layout', [{}]*ndata)
+
+    if not isinstance(size, (int, float)):
+        sizescale = sizescale or (lambda array: (np.array(array) - np.min(array)) / np.ptp(array) * 30)
+        size = sizescale(size)
+    marker = dict(
+        opacity     = kwargs.get('marker_opacity', 0.5), 
+        size        = size, 
+        showscale   = False,
+        line        = dict(
+            width = kwargs.get('marker_line_width', 1),
+            color = kwargs.get('marker_line_color', 'rgb(0,0,0)')
+        )
+    )
+    if color is not None:
+        if not isinstance(color, str):
+            if isinstance(colorscale, str):
+                colorscale =  make_colorscale(colorscale, reverse=kwargs.get('colorscale_reverse', False))
+            marker['colorscale'] = colorscale
+            marker['showscale'] = kwargs.get('showscale', True)
+        marker['color'] = color
+
+    # make trace
+    trace = go.Splom(
+        dimensions=[{'label': name, 'values': data} for name, data in zip(names, datasets)],
+        marker=marker,
+        diagonal={'visible': False}
+    )
+    traces = [trace]
+    # add histogram
+    for i, (name, data, hist_layout) in enumerate(zip(names, datasets, hist_unique_layouts)):
+        start = np.min(data)
+        end = np.max(data)
+        bin_size = np.ptp(data) / kwargs.get('bin_num', 10)
+        trace = go.Histogram(
+            x=data, xbins=dict(start=start, end=end, size=bin_size), 
+            name=name, autobinx=False,
+            xaxis='x{}'.format(i+ndata+1),
+            yaxis='y{}'.format(i+ndata+1,
+            **hist_layout, **hist_common_layout)
+        )
+        traces.append(trace)
+    hist_pos = kwargs.get('hist_pos', 0.15)
+    layout.update({
+        'xaxis{}'.format(i+ndata+1): {'domain': [1-(i+1)/ndata+hist_pos/ndata, 1-i/ndata-hist_pos/ndata], 'anchor': 'x{}'.format(i+ndata+1)}
+    for i in range(ndata)})
+    layout.update({
+        'yaxis{}'.format(i+ndata+1): {'domain': [i/ndata+hist_pos/ndata, (i+1)/ndata-hist_pos/ndata], 'anchor': 'y{}'.format(i+ndata+1)}
+    for i in range(ndata)})
+    layout.update(dict(
+        dragmode=kwargs.get('dragmode', 'select'),
+        hovermode='closest',
+        plot_bgcolor=kwargs.get('plot_bgcolor', None),
+        showlegend=False
+    ))
+    fig = go.Figure(data=traces, layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_clusters(
+        x,
+        y,
+        label,
+        names:      dict = None,
+        sizes=6,
+        colorscale: Union[str, list] = '12,qual,Paired', 
+        title:      str = '2D Clusters', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_clusters`
+
+    Plot 2D clusters with plotly.
+
+    Args:
+        x: x axis.
+        y: y axis. 
+        label: Label of data for clustering. 
+            `x`, `y` and `label` must have same length.
+        names: Lables' names. Optional.
+        sizes: A single number or a number list.
+            Marker sizes of each cluster.
+        colorscale: Colors of clusters. 
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Title of the plot.
+    '''
+    assert len(x) == len(y) == len(label), 'Given data have different length. `x`:{}, `y`:{}, `label`:{}'.format(len(x), len(y), len(label))
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height, hovermode='closest')
+    layout.update(kwargs.get('layout', {}))
+
+    # group by labels
+    labels = np.unique(label)
+    datasets = np.c_[x, y, label]
+    if names is not None:
+        datasets = {names[k]: datasets[datasets[:,2]==k] for k in labels}
+        labels = [names[k] for k in labels]
+    else:
+        datasets = {k: datasets[datasets[:,2]==k] for k in labels}
+    n_labels = len(labels)
+    # check for size and colors
+    if isinstance(sizes, (int, float)):
+        sizes = [sizes]*n_labels
+    if isinstance(colorscale, str):
+        colorscale = [c[1] for c in make_colorscale(colorscale, n=n_labels, reverse=kwargs.get('colorscale_reverse', False))]
+    active_opacity = kwargs.get('active_opacity', 1)
+    active_line_width = kwargs.get('active_line_width', 1)
+    inactive_opacity = kwargs.get('inactive_opacity', 0.05)
+    inactive_line_width = kwargs.get('inactive_line_width', 0.1)
     # buttons for selecting cluster to highlight
     buttons = [dict(
         label = 'Reset',
         method = 'restyle',
         args = [{
-            'marker.opacity': [kwargs.get('active_opacity', 1),] * n_labels,
-            'marker.line.width': [kwargs.get('active_line_width', 1),]*n_labels
+            'marker.opacity': [active_opacity] * n_labels,
+            'marker.line.width': [active_line_width]*n_labels
         }]
     )]
-    for i, (label, color) in enumerate(zip(labels, colors)):
-        data = dfs[label]
+    # add data points cluster by cluster
+    traces = []
+    for i, (label, size, color) in enumerate(zip(labels, sizes, colorscale)):
+        data = datasets[label]
         trace = go.Scattergl(
-            x=data[x], y=data[y], mode='markers', name=label, 
-            marker=dict(color=color, opacity=1, line=dict(width=1)))
+            x=data[:,0], y=data[:,1], mode='markers', name=label, 
+            marker=dict(color=color, size=size, opacity=active_opacity, line=dict(width=active_line_width)))
         traces.append(trace)
         button = dict(
             label = 'Cluster {}'.format(label),
             method = 'restyle',
             args = [{
-                'marker.opacity': opacitys[:i] + [kwargs.get('active_opacity', 1),] + opacitys[i+1:],
-                'marker.line.width': line_width[:i] + [kwargs.get('active_line_width', 1),] + line_width[i+1:],
+                'marker.opacity': [inactive_opacity]*i + [active_opacity] + [inactive_opacity]*(n_labels-i-1),
+                'marker.line.width': [inactive_line_width]*i + [active_line_width] + [inactive_line_width]*(n_labels-i-1),
             }]
         )
         buttons.append(button)
@@ -696,87 +969,712 @@ def plotly_df_2d_clusters(
             buttons=buttons
         )
     ]
+    layout.updatemenus = updatemenus
+    fig = go.Figure(data=traces, layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_qq_plots(
+        datasets:   Union[list, np.array], 
+        names:      Optional[Iterable[str]] = None, 
+        ncols:      Optional[int] = None,
+        title:      str = 'QQ plots', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_qq_plots`
+
+    Plot QQ-plots of all the given data with plotly.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Data names corresponding to items in data. Optional.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        title: Save the plot with this name.
+    '''
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height)
+    layout.update(kwargs.get('layout', {}))
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    if ncols is None:
+        nrows = int(np.floor(np.power(ndata, 0.5)))
+        ncols = int(np.ceil(ndata / nrows))
+    else:
+        nrows = int(np.ceil(ndata / ncols))
+    fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=names, 
+                            vertical_spacing=0.1, horizontal_spacing=0.1, print_grid=False)
+    probs = [stats.probplot(data if len(data) <= 1000 else np.random.choice(data, 1000)) for data in datasets]
+    
+    for i, prob in enumerate(probs):
+        fig.append_trace(go.Scattergl(x=prob[0][0], y=prob[0][1], mode='markers', name=names[i]+'_real'), i // ncols + 1, i % ncols + 1)
+        fig.append_trace(go.Scattergl(x=prob[0][0], y=prob[0][0]*prob[1][0]+prob[1][1], mode='lines', name=names[i]+'_exp'), i // ncols + 1, i % ncols + 1)
+
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+## Categorical - Bars and contingency tables #####################
+def plotly_bars(
+        datasets, 
+        names:      Optional[Iterable[str]] = None, 
+        subplot:    bool = False,
+        ncols:      Optional[int] = None,
+        barmode:    str = 'group',
+        title:      str = 'Bar charts', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_bars`
+
+    Plot bar charts with plotly.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Data names corresponding to items in data. Optional.
+        subplot: Whether to plot all data as subplots or not.
+        ncols: Number of subplots of every row. 
+            Ignored when `subplots` is `False`.
+            If `None`, it's determined with `datasets`'s length.
+        barmode: 'stack', 'group', 'overlay' or 'relative'.
+            Ignored when `subplots` is `True`.
+        title: Save the plot with this name.
+    '''
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(title=title, width=width, height=height)
+    layout.update(kwargs.get('layout', {}))
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    bar_common_layout = kwargs.get('bar_common_layout', {})
+    bar_unique_layouts = kwargs.get('bar_unique_layout', [{}]*ndata)
+    
+    # make traces for every data row
+    traces = []
+    for data, name, bar_layout in zip(datasets, names, bar_unique_layouts):
+        s = pd.value_counts(data).sort_index()
+        trace = go.Bar(x=s.index, y=s.values, text=s.values, textposition='auto', 
+            name=name, **bar_layout, **bar_common_layout)
+        traces.append(trace)
+    
+    if subplot:
+        if ncols is None:
+            nrows = int(np.floor(np.power(ndata, 0.5)))
+            ncols = int(np.ceil(ndata / nrows))
+        else:
+            nrows = int(np.ceil(ndata / ncols))
+        fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=names, 
+                                vertical_spacing=0.1, horizontal_spacing=0.1, print_grid=False)
+        for i, trace in enumerate(traces):
+            fig.append_trace(trace, i // ncols + 1, i % ncols + 1)
+    else:
+        if ndata > 1:
+            assert barmode in ['stack', 'group', 'overlay', 'relative'], 'Invalid barmode "{}".'.format(barmode)
+            layout.barmode = barmode
+        fig = go.Figure(data=traces)
+
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_crosstable(
+        datasets,
+        names=None,
+        half:       bool = False,
+        ttype:      str = 'count',
+        colorscale: Union[str, list] = 'Greys', 
+        title:      str = 'Contigency Table',
+        **kwargs) -> None:
+    '''Docstring of `plotly_crosstable`
+
+    Plot contigency table (matrix) with plotly heatmap.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Data names correspond to columns of datasets. Optional.
+        half: Shows only half of the matrix or shows duplicated part too.
+        ttype: Determines how the contigency table is calculated.
+            'count': The counts of every combination.
+            'percent': The percentage of every combination to the 
+            sum of every rows.
+            Defaults to 'count'.
+        colorscale: Heatmap colorscale. Avaiable values are 
+            'Blackbody', 'Bluered', 'Blues', 'Earth', 'Electric', 'Greens',
+            'Greys', 'Hot', 'Jet', 'Picnic', 'Portland', 'Rainbow', 'RdBu',
+            'Reds', 'Viridis', 'YlGnBu', 'YlOrRd'.
+        title: Save the plot with this name.
+    '''
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    if half:
+        range1, range2 = range(ndata-1), range(1, ndata)
+    else:
+        range1, range2 = range(ndata), range(ndata)
+    
+    # layout
+    layout = go.Layout(title=title, annotations=[], width=width, height=height)
+    layout.update({'xaxis{}'.format(k+(not half)): {'title': names[k], 'type': 'category'} for k in range2})
+    layout.update({'yaxis{}'.format(k+1): {'title': names[k], 'type': 'category', 'autorange': 'reversed'} for k in range1})
+    
+    # make fig for subplots
+    fig = tls.make_subplots(rows=len(range2), cols=len(range1), 
+                            shared_xaxes=True, shared_yaxes=True, 
+                            vertical_spacing=0.01, horizontal_spacing=0.01, print_grid=False)
+    for i in range1:
+        for j in range2:
+            if half and i == j:
+                continue
+            ct = contingency_table(datasets[i], datasets[j], rownames=[names[i]], colnames=[names[j]])
+            if ttype == 'percent':
+                total_row = ct.iloc[-1] / ct.iloc[-1, -1]
+                ct.index = ct.index.astype(str) + ' (' + ct['Total'].astype(str) + ')'
+                ct.columns = ct.columns.astype(str) + ' (' + ct.iloc[-1].astype(str) + ')'
+                ct = ct / ct.iloc[-1]
+                ct.iloc[-1] = total_row.values
+                ct = ct * 100
+            annheat = ff.create_annotated_heatmap(
+                z=ct.values, x=list(ct.columns), y=list(ct.index),
+                annotation_text=(None if ttype=='count' else ct.applymap('{:.2f}%'.format).values),
+                colorscale=colorscale,
+                hoverinfo='x+y',
+            )
+            trace = annheat['data'][0]
+            idx_i = i + 1
+            idx_j = j + (not half)
+            
+            annotations = annheat['layout']['annotations']
+            for ann in annotations:
+                ann['xref'] = 'x{}'.format(idx_j)
+                ann['yref'] = 'y{}'.format(idx_i)
+            # print(layout['annotations'])
+            layout['annotations'].extend(annotations)
+            fig.append_trace(trace, idx_i, idx_j)
+    
+    layout.update(kwargs.get('layout', {}))
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_crosstable_stacked(
+        datasets,
+        names=None,
+        half:       bool = False,
+        ttype:      str = 'count',
+        colorscale: Union[str, list] = '3,seq,Greys', 
+        title:      str = 'Stacked Contigency Table',
+        **kwargs) -> None:
+    '''Docstring of `plotly_crosstable`
+
+    Plot stacked contigency table with plotly heatmap.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Data names correspond to columns of datasets. Optional.
+        half: Shows only half of the matrix or shows duplicated part too.
+        ttype: Determines how the contigency table is calculated.
+            'count': The counts of every combination.
+            'percent': The percentage of every combination to the 
+            sum of every rows.
+            Defaults to 'count'.
+        colorscale: Heatmap colorscale. Avaiable values are 
+            'Blackbody', 'Bluered', 'Blues', 'Earth', 'Electric', 'Greens',
+            'Greys', 'Hot', 'Jet', 'Picnic', 'Portland', 'Rainbow', 'RdBu',
+            'Reds', 'Viridis', 'YlGnBu', 'YlOrRd'.
+        title: Save the plot with this name.
+    '''
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = datasets.shape[0]
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    if half:
+        range1, range2 = range(ndata-1), range(1, ndata)
+    else:
+        range1, range2 = range(ndata), range(ndata)
+
+    # layout
+    layout = go.Layout(
+        title=title, annotations=[], width=width, height=height, barmode='stack',
+        showlegend=False, 
+        hoverlabel={'bgcolor': 'black', 'font': {'color': 'white'}, 'namelength': -1}
+    )
+    layout.update({'xaxis{}'.format(k+(not half)): {'title': names[k]} for k in range2})
+    layout.update({'yaxis{}'.format(k+1): {'title': names[k], 'type': 'category', 'autorange': 'reversed'} for k in range1})
+    
+    # make fig for subplots
+    fig = tls.make_subplots(rows=len(range2), cols=len(range1), 
+                            shared_xaxes=True, shared_yaxes=True, 
+                            vertical_spacing=0.01, horizontal_spacing=0.01, print_grid=False)
+    
+    for i in range1:
+        for j in range2:
+            if half and i == j:
+                continue
+            ct = contingency_table(datasets[j], datasets[i], rownames=[names[j]], colnames=[names[i]])
+            n_values = ct.iloc[-1,-1]
+            n_labels = len(ct.index) - 1
+            if isinstance(colorscale, str):
+                clrscl = [c[1] for c in make_colorscale(colorscale, n=n_labels, reverse=kwargs.get('colorscale_reverse', False))]
+            
+            if ttype == 'percent':
+                total_row = ct.iloc[-1] / ct.iloc[-1, -1]
+                ct.index = ct.index.astype(str) + ' (' + ct['Total'].astype(str) + ')'
+                ct.columns = ct.columns.astype(str) + ' (' + ct.iloc[-1].astype(str) + ')'
+                ct = ct / ct.iloc[-1]
+                ct.iloc[-1] = total_row.values
+                ct = ct * 100
+                text = ct.applymap('{:.2f}'.format) + '%'
+            else:
+                text = ct
+            traces = [
+                go.Bar(
+                    x=ct.iloc[k][:-1], y=ct.columns[:-1], name=ct.index[k], 
+                    orientation='h', text=text.iloc[k], hoverinfo='name+text',
+                    marker=dict(color=clrscl[k])
+                )
+            for k in range(n_labels)]
+
+            for trace in traces:
+                fig.append_trace(trace, i+1, j+(not half))
+
+    layout.update(kwargs.get('layout', {}))
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_chi_square_matrix(
+        datasets, 
+        names:      Optional[Iterable[str]] = None, 
+        title:      str = 'Chi-Square Matrix', 
+        **kwargs) -> None:
+    '''Docstring of `plotly_chi_square_matrix`
+
+    Run and plot chi-square test on every two rows of given datasets,
+    with contigency tables calculated on the two rows.
+
+    The chi-squared test is used to determine whether there is a significant 
+    difference between the expected frequencies and the observed frequencies
+    in one or more categories.
+
+    Args:
+        datasets: A list of data to plot.
+        names: Data names corresponding to items in data. Optional.
+        title: Save the plot with this name.
+    '''
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    # preparation
+    datasets = np.array(datasets)
+    if kwargs.get('orientation', 'horizontal') == 'vertical':
+        datasets = np.array(datasets).T
+    ndata = len(datasets)
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    data = np.c_[names, chi_square_matrix(datasets, names).values]
+    data = np.r_[[['']+names], data]
+    
+    table_layout = kwargs.get('table_layout', {})
+    fig = ff.create_table(data, index=True, **table_layout)
+    layout = kwargs.get('layout', {})
+    layout.update(dict(title=title, width=width, height=height))
+    fig['layout'].update(layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+## Machine Learning Visualizers ######################################
+def plotly_learning_curve(
+        train_sizes, 
+        train_means, 
+        train_std, 
+        val_means, 
+        val_stds,
+        ylim=None,
+        title: str='Learning Curve',
+        **kwargs
+    ):
     width = kwargs.get('width', 900)
     height = kwargs.get('height', 700)
     layout = go.Layout(
-        title=title, updatemenus=updatemenus, width=width, height=height,
-        xaxis=dict(title=x), yaxis=dict(title=y))
-    fig = go.Figure(data=traces, layout=layout)
+        title=title, width=width, height=height,
+        xaxis=dict(title='Training data number'),
+        yaxis=dict(title='Score')
+    )
+
+    color1, color2 = 'rgb(255,0,0)', 'rgb(0,0,255)'
+    trace0 = go.Scatter(
+        x=train_sizes, y=train_means+train_std, 
+        fill=None, mode='lines', line=dict(width=0), 
+        showlegend=False, hoverinfo='skip'
+    )
+    trace1 = go.Scatter(
+        x=train_sizes, y=train_means-train_std, 
+        fill='tonexty', mode='none',
+        fillcolor='rgba(255, 0, 0, 0.2)', showlegend=False, hoverinfo='skip'
+    )
+    trace2 = go.Scatter(
+        x=train_sizes, y=train_means, fill=None, mode='lines', 
+        name='Train score', line=dict(color='rgb(255, 0, 0)')
+    )
+    trace3 = go.Scatter(
+        x=train_sizes, y=val_means+val_stds, 
+        fill=None, mode='lines', line=dict(width=0), 
+        showlegend=False, hoverinfo='skip'
+    )
+    trace4 = go.Scatter(
+        x=train_sizes, y=val_means-val_stds, 
+        fill='tonexty', mode='none',
+        fillcolor='rgba(0, 0, 255, 0.2)', showlegend=False, hoverinfo='skip'
+    )
+    trace5 = go.Scatter(
+        x=train_sizes, y=val_means, fill=None, mode='lines', 
+        name='Cross-validation score', line=dict(color='rgb(0, 0, 255)')
+    )
+    if ylim is not None:
+        layout.yaxis.range = [*ylim]
+    layout.update(kwargs.get('layout', {}))
+    fig = go.Figure(data=[trace0, trace1, trace2, trace3, trace4, trace5], layout=layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
 
-def plotly_2d_clusters(
-        data:   np.array, 
-        colors: Union[str, list] = '12,qual,Paired', 
-        title:  str = '2D Clusters', 
-        **kwargs) -> None:
-    '''Docstring of `plotly_2d_clusters`
+## classification
+# todo
+#  - different shape of boundaries for different models
+def plotly_decision_boundary(
+        model,
+        fx,
+        fy,
+        y,
+        h=0.2,
+        bg_colorscale='4,div,RdBu',
+        line_colorscale='7,seq,Greys',
+        title='Decision Boundaries',
+        **kwargs):
+    '''Docstring of `plotly_decision_boundary`
 
-    Plot scatter plots of first two columns grouped by the unique values
-    of the third column with plotly.
+    Plot decision boundaries with a model trained with two features.
+
+    The boundary shape is determined by model type.
 
     Args:
-        data: A numpy array.
-        title: Title of the plot.
-        colors: Colors of every clusters. Accept a list of color strings
-        with same length as the number of clusters. Or a string that will
-        be passed to `make_colorscale` to make colors for every clusters.
+        model: A trained model.
+        fx, fy: Two features used to train the given model.
+        y: Ground-Truth of every feature pairs.
+        h: The feature step for constructing meshgrid.
+        bg_colorscale: Background colorscale.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        line_colorscale: Probability contour line colors.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
     '''
-    # group by unique values
-    labels = np.unique(data[:,2])
-    data = {k: data[data[:,2]==k] for k in labels}
-    n_labels = len(labels)
-    # check for colors
-    if isinstance(colors, str):
-        colors =  [c[1] for c in make_colorscale(colors, n=n_labels)]
+    if model.__class__.__name__ in ['SVC']:
+        return plotly_decision_boundary_svm(model, fx, fy, y, h=h, bg_colorscale=bg_colorscale, line_colorscale=line_colorscale, title=title, **kwargs)
     else:
-        assert len(colors) == n_labels, 'Invalid colors. {} colors is needed.'.format(n_labels)
-    opacitys = [kwargs.get('inactive_opacity', 0.05),] * n_labels
-    line_width = [kwargs.get('inactive_line_width', 0.1),] * n_labels
-    # buttons for selecting cluster to highlight
+        return plotly_decision_boundary_normal(model, fx, fy, y, h=h, bg_colorscale=bg_colorscale, line_colorscale=line_colorscale, title=title, **kwargs)
+
+def plotly_decision_boundary_normal(
+        model,
+        fx,
+        fy,
+        y,
+        h=0.2,
+        bg_colorscale='4,div,RdBu',
+        line_colorscale='7,seq,Greys',
+        title='Decision Boundaries',
+        **kwargs):
+    '''Docstring of `plotly_decision_boundary_normal`
+
+    Plot decision boundaries with a model trained with two features.
+
+    Args:
+        model: A trained model.
+        fx, fy: Two features used to train the given model.
+        y: Ground-Truth of every feature pairs.
+        h: The feature step for constructing meshgrid.
+        bg_colorscale: Background colorscale.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        line_colorscale: Probability contour line colors.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
+    '''
+    classes, idx = np.unique(y, return_inverse=True)
+    n_class = len(classes)
+    # train the model
+    model.fit(np.c_[fx, fy], idx)
+    # colors
+    if isinstance(bg_colorscale, str):
+        bg_colorscale = make_colorscale(bg_colorscale, n=n_class)
+    if isinstance(line_colorscale, str):
+        line_colorscale = make_colorscale(line_colorscale)
+    # meshgrid
+    minx, miny = np.min(fx), np.min(fy)
+    maxx, maxy = np.max(fx), np.max(fy)
+    dx, dy = np.power(10, np.floor(np.log10(maxx-minx))), np.power(10, np.floor(np.log10(maxy-miny)))
+    minx, maxx = minx - dx, maxx + dx
+    miny, maxy = miny - dy, maxy + dy
+    xrng = np.arange(minx, maxx, h)
+    yrng = np.arange(miny, maxy, h)
+    xx, yy = np.meshgrid(xrng, yrng)
+    xy = np.c_[xx.ravel(), yy.ravel()]
+    # layout
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(
+        title=title, width=width, height=height, hovermode='closest',
+        xaxis=dict(showgrid=False, range=[minx, maxx], zeroline=False), 
+        yaxis=dict(showgrid=False, range=[miny, maxy], zeroline=False)
+    )
+    layout.update(kwargs.get('layout', {}))
+    # class contour; background
+    Z = model.predict(xy).reshape(xx.shape)
+    Z = Z.reshape(xx.shape).astype(int)
+    trace0 = go.Contour(
+        z=Z, x=xrng, y=yrng, text=classes, hoverinfo='x+y+text',
+        contours=dict(start=0, end=n_class, size=1), line=dict(width=0, smoothing=kwargs.get('contour_smoothing', 0)),
+        showscale=False, colorscale=bg_colorscale, opacity=0.6,
+    )
+    # feature scatters
+    trace1 = go.Scattergl(
+        x=fx, y=fy, mode='markers', text=y, hoverinfo='x+y+text',
+        marker=dict(color=idx, colorscale=bg_colorscale, line=dict(width=1)),
+        showlegend=False
+    )
+    traces = [trace0, trace1]
+    # control buttons
     buttons = [dict(
         label = 'Reset',
         method = 'restyle',
-        args = [{
-            'marker.opacity': [kwargs.get('active_opacity', 1),] * n_labels,
-            'marker.line.width': [kwargs.get('active_line_width', 1),]*n_labels
-        }]
+        args = [{'visible': [True, True] + [False]*n_class}]
     )]
-    # add data points cluster by cluster
-    traces = []
-    for i, (label, color) in enumerate(zip(labels, colors)):
-        d = data[label]
-        trace = go.Scattergl(
-            x=d[:,0], y=d[:,1], mode='markers', name=label, 
-            marker=dict(color=color, opacity=1, line=dict(width=1)))
+    # probrability contours and buttons
+    Z2 = model.predict_proba(np.c_[xx.ravel(), yy.ravel()])
+    for i in range(n_class):
+        ZZ2 = Z2[:, i].reshape(xx.shape)
+        trace = go.Contour(
+            z=ZZ2, x=xrng, y=yrng, hoverinfo='x+y+z+name', name=classes[i],
+            contours=dict(
+                coloring='lines', showlabels=True,
+                start=kwargs.get('proba_start', 0), end=kwargs.get('proba_end', 1), size=kwargs.get('proba_step', 0.1)
+            ), line=dict(width=2),
+            showscale=False, visible=False, colorscale=line_colorscale
+        )
         traces.append(trace)
         button = dict(
-            label = 'Cluster {}'.format(label),
+            label = 'Class {}'.format(classes[i]),
             method = 'restyle',
-            args = [{
-                'marker.opacity': opacitys[:i] + [kwargs.get('active_opacity', 1),] + opacitys[i+1:],
-                'marker.line.width': line_width[:i] + [kwargs.get('active_line_width', 1),] + line_width[i+1:],
-            }]
+            args = [{'visible': [True, True] + [False]*i+[True]+[False]*(n_class-i-1)}]
         )
         buttons.append(button)
-    updatemenus = [
-        dict(
-            type='buttons',
-            buttons=buttons
-        )
-    ]
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(title=title, updatemenus=updatemenus, width=width, height=height)
+    buttons.append(dict(
+        label = 'All',
+        method = 'restyle',
+        args = [{'visible': [True, True] + [True]*n_class}]
+    ))
+    updatemenus = [dict(
+        type='buttons',
+        buttons=buttons
+    )]
+    layout.updatemenus = updatemenus
+
     fig = go.Figure(data=traces, layout=layout)
     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_decision_boundary_svm(
+        model,
+        fx,
+        fy,
+        y,
+        h=0.2,
+        bg_colorscale='4,div,RdBu',
+        line_colorscale=[[0,'rgb(0,0,0)'], [1,'rgb(0,0,0)']],
+        title='SVM Decision Boundaries',
+        **kwargs):
+    '''Docstring of `plotly_decision_boundary_svm`
+
+    Plot decision boundaries with a SVM model trained with two features.
+
+    Args:
+        model: A trained model.
+        fx, fy: Two features used to train the given model.
+        y: Ground-Truth of every feature pairs.
+        h: The feature step for constructing meshgrid.
+        bg_colorscale: Background colorscale.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        line_colorscale: Probability contour line colors.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
+    '''
+    classes, idx = np.unique(y, return_inverse=True)
+    n_class = len(classes)
+    # train the model
+    m_all = clone(model)
+    m_all.fit(np.c_[fx, fy], idx)
+    # colors
+    if isinstance(bg_colorscale, str):
+        bg_colorscale = make_colorscale(bg_colorscale, n=n_class)
+    if isinstance(line_colorscale, str):
+        line_colorscale = make_colorscale(line_colorscale)
+    # meshgrid
+    minx, miny = np.min(fx), np.min(fy)
+    maxx, maxy = np.max(fx), np.max(fy)
+    dx, dy = np.power(10, np.floor(np.log10(maxx-minx))), np.power(10, np.floor(np.log10(maxy-miny)))
+    minx, maxx = minx - dx, maxx + dx
+    miny, maxy = miny - dy, maxy + dy
+    xrng = np.arange(minx, maxx, h)
+    yrng = np.arange(miny, maxy, h)
+    xx, yy = np.meshgrid(xrng, yrng)
+    xy = np.c_[xx.ravel(), yy.ravel()]
+    # layout
+    width = kwargs.get('width', 900)
+    height = kwargs.get('height', 700)
+    layout = go.Layout(
+        title=title, width=width, height=height, hovermode='closest',
+        xaxis=dict(showgrid=False, range=[minx, maxx], zeroline=False), 
+        yaxis=dict(showgrid=False, range=[miny, maxy], zeroline=False)
+    )
+    layout.update(kwargs.get('layout', {}))
+    # class contour; background
+    Z = m_all.predict(xy).reshape(xx.shape)
+    Z = Z.reshape(xx.shape).astype(int)
+    trace0 = go.Contour(
+        z=Z, x=xrng, y=yrng, text=classes, hoverinfo='x+y+text',
+        contours=dict(start=0, end=n_class, size=1), line=dict(width=0, smoothing=kwargs.get('contour_smoothing', 0)),
+        showscale=False, colorscale=bg_colorscale, opacity=0.6,
+    )
+    # feature scatters
+    trace1 = go.Scattergl(
+        x=fx, y=fy, mode='markers', text=y, hoverinfo='x+y+text',
+        marker=dict(color=idx, colorscale=bg_colorscale, line=dict(width=1)),
+        showlegend=False
+    )
+    traces = [trace0, trace1]
+    # control buttons
+    buttons = [dict(
+        label = 'Reset',
+        method = 'restyle',
+        args = [{'visible': [True, True] + [False]*3*n_class}]
+    )]
+    # train models ovr
+    for i in range(n_class):
+        c_name = classes[i]
+        y_c = np.where(y==c_name, 1, 0)
+        m_c = clone(model)
+        m_c.fit(np.c_[fx, fy], y_c)
+        Z_c = m_c.decision_function(xy).reshape(xx.shape)
+        trace_dash = go.Contour(
+            z=Z_c, x=xrng, y=yrng, hoverinfo='x+y+z+name', name=c_name,
+            contours=dict(
+                coloring='lines', showlabels=False,
+                start=-1, end=1, size=2
+            ), line=dict(width=2, dash='dash'),
+            showscale=False, visible=False, colorscale=line_colorscale
+        )
+        trace_line = go.Contour(
+            z=Z_c, x=xrng, y=yrng, hoverinfo='x+y+z+name', name=c_name,
+            contours=dict(
+                coloring='lines', showlabels=False,
+                start=0, end=0, size=0
+            ), line=dict(width=2, dash='solid'),
+            showscale=False, visible=False, colorscale=line_colorscale
+        )
+        scatter = go.Scatter(
+            x=m_c.support_vectors_[:, 0], y=m_c.support_vectors_[:, 1],
+            mode='markers', hoverinfo='x+y+text', text='SupportVector',
+            marker=dict(
+                symbol='circle-open', color='rgb(0,0,0)', 
+                line=dict(width=3)
+            ), visible=False, showlegend=False
+        )
+        traces.append(trace_dash)
+        traces.append(trace_line)
+        traces.append(scatter)
+        button = dict(
+            label = 'Class {}'.format(c_name),
+            method = 'restyle',
+            args = [{'visible': [True, True] + [False]*3*i+[True]*3+[False]*3*(n_class-i-1)}]
+        )
+        buttons.append(button)
+    buttons.append(dict(
+        label = 'All',
+        method = 'restyle',
+        args = [{'visible': [True, True] + [True]*3*n_class}]
+    ))
+    updatemenus = [dict(
+        type='buttons',
+        buttons=buttons
+    )]
+    layout.updatemenus = updatemenus
+
+    fig = go.Figure(data=traces, layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
 
 ###############################################################################
 ## Matplotlib functions
 ###############################################################################
-
-#######################
 def plt_heatmap(
         data:       np.array, 
         size:       Tuple[int, int] = (28, 28), 
@@ -823,12 +1721,6 @@ def plt_heatmaps(
     )
     kwargs.get('save', False) and plt.savefig(title+'.png')
 
-# def plt_learning_curve(train_errors, val_errors, title: str='Learning Curve', **kwargs):
-#     plt.plot(train_errors, 'r-+', linewidth=kwargs.get('train_error_linewidth', 2), label='train')
-#     plt.plot(val_errors, 'b-', linewidth=kwargs.get('val_error_linewidth', 3), label='val')
-#     plt.title(title)
-#     kwargs.get('save', False) and plt.savefig(title+'.png')
-
 def plt_learning_curve(
         train_sizes, 
         train_means, 
@@ -851,54 +1743,246 @@ def plt_learning_curve(
     plt.legend(loc='best')
     plt.show()
 
-def plotly_learning_curve(
-        train_sizes, 
-        train_means, 
-        train_std, 
-        val_means, 
-        val_stds,
-        ylim=None,
-        title: str='Learning Curve',
-        **kwargs
-    ):
-    color1, color2 = 'rgb(255,0,0)', 'rgb(0,0,255)'
-    trace0 = go.Scatter(
-        x=train_sizes, y=train_means+train_std, 
-        fill=None, mode='lines', line=dict(width=0), 
-        showlegend=False, hoverinfo='skip'
-    )
-    trace1 = go.Scatter(
-        x=train_sizes, y=train_means-train_std, 
-        fill='tonexty', mode='none',
-        fillcolor='rgba(255, 0, 0, 0.2)', showlegend=False, hoverinfo='skip'
-    )
-    trace2 = go.Scatter(
-        x=train_sizes, y=train_means, fill=None, mode='lines', 
-        name='Train score', line=dict(color='rgb(255, 0, 0)')
-    )
-    trace3 = go.Scatter(
-        x=train_sizes, y=val_means+val_stds, 
-        fill=None, mode='lines', line=dict(width=0), 
-        showlegend=False, hoverinfo='skip'
-    )
-    trace4 = go.Scatter(
-        x=train_sizes, y=val_means-val_stds, 
-        fill='tonexty', mode='none',
-        fillcolor='rgba(0, 0, 255, 0.2)', showlegend=False, hoverinfo='skip'
-    )
-    trace5 = go.Scatter(
-        x=train_sizes, y=val_means, fill=None, mode='lines', 
-        name='Cross-validation score', line=dict(color='rgb(0, 0, 255)')
-    )
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(
-        title=title, width=width, height=height,
-        xaxis=dict(title='Training data number'),
-        yaxis=dict(title='Score')
-    )
-    if ylim is not None:
-        layout.yaxis.range = [*ylim]
-    fig = go.Figure(data=[trace0, trace1, trace2, trace3, trace4, trace5], layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    plty.iplot(fig)
+def plt_decision_boundary(model, features):
+    assert len(features) > 0 and len(features) < 3, 'Invalid features. Only 1 or 2 features are supported.'
+    # make meshgrid
+    features = np.array(features)
+    mins, maxs = np.min(features, axis=0), np.max(features, axis=0)
+    deltas = np.power(10, np.floor(np.log10(maxs-mins)) - 1)
+    mins, maxs = mins- deltas, maxs + deltas
+    xx, yy = np.meshgrid(np.arange(mins[0], maxs[0], h), np.arange(mins[1], maxs[1], h))
+
+    Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+    Z = Z.reshape(xx.shape)
+    plt.reshape(xx, yy, Z, cmap=plt.cm.Paired)
+
+###############################################################################
+## Other plot functions
+###############################################################################
+
+def plot_decision_tree(tree_model, title='Decision Tree', **kwargs):
+    export_params = kwargs.get('export_params', {})
+    dot = export_graphviz(tree_model, out_file=None, **export_params)
+    graph = Source(dot, format='png', engine='dot')
+    kwargs.get('save', False) and graph.render(filename=title, cleanup=True)
+    return graph
+
+
+
+
+
+
+
+
+
+#----------------------------------------------------------#
+# deprecated
+
+
+
+
+## Contigency table #####################
+
+# def plotly_df_crosstab_heatmap_matrix(
+#         df:         pd.DataFrame, 
+#         columns:    List[str], 
+#         ttype:      str = 'count', 
+#         colorscale: Union[str, list] = 'Greens', 
+#         title:      str = 'Contingency Table Matrix',
+#         **kwargs) -> None:
+#     '''Docstring of `plotly_df_crosstab_heatmap_matrix`
+
+#     Plot contigency tables of every two given columns with plotly heatmap.
+
+#     Args:
+#         df: A pandas DataFrame.
+#         columns: The column names.
+#         ttype: Determines how the contigency table is calculated.
+#             'count': The counts of every combination.
+#             'colper': The percentage of every combination to the 
+#             sum of every rows.
+#             Defaults to 'count'.
+#         colorscale: The color scale to use.
+#         title: Save the plot with this name.
+#     '''
+#     nrows = ncols = len(columns)
+#     fig = tls.make_subplots(rows=nrows, cols=ncols, 
+#                             shared_xaxes=True, shared_yaxes=True, 
+#                             vertical_spacing=0.01, horizontal_spacing=0.01, print_grid=False)
+#     width = kwargs.get('width', 950)
+#     height = kwargs.get('height', 750)
+#     # layout = go.Layout(title=title, annotations=[], width=width, height=height)
+#     # for k in range(nrows):
+#     #     layout['xaxis{}'.format(k+1)]['title'] = columns[k]
+#     #     layout['yaxis{}'.format(k+1)]['title'] = columns[k]
+#     #     layout['xaxis{}'.format(k+1)]['type'] = 'category'
+#     #     layout['yaxis{}'.format(k+1)]['type'] = 'category'
+#     #     layout['yaxis{}'.format(k+1)]['autorange'] = 'reversed'
+#     layout = {'xaxis{}'.format(k+1): {'title': columns[k], 'type': 'category'} for k in range(nrows)}
+#     layout.update({'yaxis{}'.format(k+1): {'title': columns[k], 'type': 'category', 'autorange': 'reversed'} for k in range(nrows)})
+#     layout.update(dict(
+#         title=title, annotations=[], width=width, height=height
+#     ))
+#     layout = go.Layout(layout)
+#     for i in range(nrows):
+#         for j in range(ncols):
+#             ct = df_contingency_table(df, columns[i], columns[j], ttype=ttype)
+            
+#             annheat = ff.create_annotated_heatmap(z=ct.values, x=list(ct.columns), y=list(ct.index))
+#             trace = annheat['data'][0]
+#             trace['colorscale'] = colorscale
+
+#             annotations = annheat['layout']['annotations']
+#             for ann in annotations:
+#                 ann['xref'] = 'x{}'.format(j+1)
+#                 ann['yref'] = 'y{}'.format(i+1)
+#                 ann['font']['color'] = float(ann['text']) / df.shape[0] > 0.5 and 'rgb(255,255,255)' or 'rgb(0,0,0)'
+#                 if ttype == 'colper': ann['text'] = ann['text'] + '%'
+#             layout['annotations'] = list(layout['annotations']).extend(annotations)
+            
+#             fig.append_trace(trace, i+1, j+1)    
+            
+#     fig['layout'].update(layout)
+#     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+#     plty.iplot(fig)
+
+# def plotly_df_crosstab_stacked(
+#         df:     pd.DataFrame, 
+#         col1:   str, 
+#         col2:   str, 
+#         title:  str = 'crosstab_stacked_bar',
+#         **kwargs) -> None:
+#     '''Docstring of `plotly_df_crosstab_stacked`
+
+#     Plot stacked bar of two given columns' contigency table with plotly heatmap.
+
+#     Args:
+#         df: A pandas DataFrame.
+#         col1: Index of the contigency table.
+#         col2: Column of the contigency table.
+#         title: Save the plot with this name.
+#     '''
+#     ct = df_contingency_table(df, col1, col2)
+#     width = kwargs.get('width', 900)
+#     height = kwargs.get('height', 700)
+#     layout = go.Layout(
+#         barmode = 'stack',
+#         title = '{}-{}'.format(ct.index.name, ct.columns.name),
+#         yaxis = dict(title=ct.columns.name),
+#         annotations = [
+#             dict(
+#                 x=1.12,
+#                 y=1.05,
+#                 text='Pclass',
+#                 showarrow=False,
+#                 xref="paper",
+#                 yref="paper",
+#             )
+#         ],
+#         width=width,
+#         height=height
+#     )
+#     ct.index = ct.index.astype(str) + ' <br>(n=' + ct['Total'].astype(str) + ')'
+#     ct.columns = ct.columns.astype(str) + ' <br>(n=' + ct.iloc[-1].astype(str) + ')'
+#     ct = (ct / ct.iloc[-1] * 100).round().astype(int)
+#     data = [go.Bar(x=ct.iloc[i][:-1], y=ct.columns[:-1], name=ct.index[i], orientation='h') for i in range(ct.index.shape[0]-1)]
+    
+#     fig = go.Figure(data=data, layout=layout)
+#     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+#     plty.iplot(fig)
+
+# def plotly_df_crosstab_stacked_matrix(
+#         df:         pd.DataFrame, 
+#         columns:    List[str], 
+#         colorscale: Union[str, list] = 'Greens', 
+#         title:      str = 'Stacked Bar Matrix',
+#         **kwargs) -> None:
+#     '''Docstring of `plotly_df_crosstab_stacked_matrix`
+
+#     Plot stacked bars of every two given columns' contigency table with plotly heatmap.
+
+#     Args:
+#         df: A pandas DataFrame.
+#         columns: The column names.
+#         colorscale: The color scale to use.
+#         title: Save the plot with this name.
+#     '''
+#     nrows = ncols = len(columns)
+#     fig = tls.make_subplots(rows=nrows, cols=ncols, 
+#                             shared_xaxes=True, shared_yaxes=True, 
+#                             vertical_spacing=0.01, horizontal_spacing=0.01, print_grid=False)
+#     width = kwargs.get('width', 950)
+#     height = kwargs.get('height', 750)
+#     # layout = go.Layout(title=title, annotations=[], 
+#     #                     width= width, height=height, barmode='stack',
+#     #                     showlegend=False, hoverlabel={'bgcolor': 'black', 'font': {'color': 'white'}, 'namelength': -1})
+#     # for k in range(nrows):
+#     #     layout['xaxis{}'.format(k+1)]['title'] = columns[k]
+#     #     layout['yaxis{}'.format(k+1)]['title'] = columns[k]
+#     #     #layout['xaxis{}'.format(k+1)]['type'] = 'category'
+#     #     layout['yaxis{}'.format(k+1)]['type'] = 'category'
+#     #     layout['yaxis{}'.format(k+1)]['autorange'] = 'reversed'
+#     layout = {'xaxis{}'.format(k+1): {'title': columns[k]} for k in range(nrows)}
+#     layout.update({'yaxis{}'.format(k+1): {'title': columns[k], 'type': 'category', 'autorange': 'reversed'} for k in range(nrows)})
+#     layout.update(dict(
+#         title=title, annotations=[], 
+#         width= width, height=height, barmode='stack',
+#         showlegend=False, hoverlabel={'bgcolor': 'black', 'font': {'color': 'white'}, 'namelength': -1}
+#     ))
+#     layout = go.Layout(layout)
+#     for i in range(nrows):
+#         for j in range(ncols):
+#             ct = df_contingency_table(df, columns[j], columns[i])
+#             ct.index = ct.index.astype(str) + ' <br>(n=' + ct['Total'].astype(str) + ')'
+#             ct.columns = ct.columns.astype(str) + ' <br>(n=' + ct.iloc[-1].astype(str) + ')'
+#             ct = (ct / ct.iloc[-1] * 100).round().astype(int)
+#             data = [go.Bar(x=ct.iloc[k][:-1], y=ct.columns[:-1], name=ct.index[k], orientation='h') for k in range(ct.index.shape[0]-1)]
+            
+#             for trace in data:
+#                 fig.append_trace(trace, i+1, j+1)
+    
+#     fig['layout'].update(layout)
+#     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+#     plty.iplot(fig)
+
+# def plotly_qq_plots(
+#         data:   list, 
+#         names:  list = [], 
+#         ncols:  Optional[int] = None,
+#         title:  str = 'QQ plots',
+#         **kwargs) -> None:
+#     '''Docstring of `plotly_describes`
+
+#     Plot QQ-plots of all the given data with plotly.
+
+#     Args:
+#         data: A list of numerical data.
+#         names: A list of names corresponding to data rows.
+#         ncols: Number of subplots of every row.
+#             If `None`, it's determined with number of data.
+#         title: Save the plot with this name.
+#     '''
+#     ndata = len(data)
+#     names = names or ['']*ndata
+#     if ncols is None:
+#         nrows = int(np.floor(np.power(ndata, 0.5)))
+#         ncols = int(np.ceil(ndata / nrows))
+#     else:
+#         nrows = int(np.ceil(ndata / ncols))
+#     fig = tls.make_subplots(rows=nrows, cols=ncols, subplot_titles=names, 
+#                             vertical_spacing=0.1, horizontal_spacing=0.1, print_grid=False)
+#     for i in range(nrows):
+#         for j in range(ncols):
+#             try:
+#                 p = stats.probplot(data[ncols * i + j])
+#             except:
+#                 break
+#             fig.append_trace(go.Scattergl(x=p[0][0], y=p[0][1], mode='markers'), i+1, j+1)
+#             fig.append_trace(go.Scattergl(x=p[0][0], y=p[0][0]*p[1][0]+p[1][1]), i+1, j+1)
+    
+#     width = kwargs.get('width', 900)
+#     height = kwargs.get('height', 700)
+#     layout = go.Layout(title=title, showlegend=False, width=width, height=height)
+#     fig['layout'].update(layout)
+#     kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+#     plty.iplot(fig)

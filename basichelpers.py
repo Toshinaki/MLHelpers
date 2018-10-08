@@ -1,11 +1,36 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
-from typing import Union, List, Callable, Optional, Tuple, Iterable
+from typing import Union, List, Callable, Optional, Tuple, Iterable, Sequence
 from sklearn.decomposition import PCA
 import inspect
 
 ## inference
+def contingency_table(x1, x2, **kwargs) -> pd.DataFrame:
+    '''Docstring of `df_contingency_table`
+
+    Construct a contigency table with two columns of given DataFrame.
+
+    Args:
+        x1: Index of the contigency table.
+        x2: Column of the contigency table.
+        ttype: Determines how the contigency table is calculated.
+            'count': The counts of every combination.
+            'percent': The percentage of every combination to the 
+            sum of every rows.
+            Defaults to 'count'.
+    
+    Returns:
+        crosstab: DataFrame.
+    '''
+    assert len(x1) == len(x2), 'Two dataset need to have same length.'
+    ct = pd.crosstab(x1, x2, **kwargs)
+    # add sum column and row
+    ct['Total'] = ct.sum(axis=1)
+    ct.loc['Total'] = ct.sum()
+        # ct = ct / ct.loc['Total']
+    return ct
+
 def df_contingency_table(df: pd.DataFrame, col1: str, col2: str, ttype: str = 'count') -> pd.DataFrame:
     '''Docstring of `df_contingency_table`
 
@@ -33,6 +58,25 @@ def df_contingency_table(df: pd.DataFrame, col1: str, col2: str, ttype: str = 'c
         ct = (ct / ct.loc['Total'] * 100).round().astype(int)
     return ct
 
+def chi_square(x1, x2, cramersv: bool = True) -> str:
+    '''Docstring of `chi_square`
+
+    Run chi-square test on two datasets with a contigency table.
+
+    Args:
+        x1, x2: Datasets.
+        cramersv: Whether to calculate the Cramér’s V.
+            Defaults to True.
+    
+    Returns:
+        A string describes the result of the chi-square test.
+    '''
+    cto = pd.crosstab(x1, x2)
+    chi2, p, dof, *_ = stats.chi2_contingency(cto)
+    if cramersv:
+        cramersv = '<br>Cramér’s V = {:.2f}'.format(corrected_cramers_V(chi2, cto))
+    return 'χ2({dof}) = {chi2:.2f}<br>p = {p:.3f}{cramersv}'.format(dof=dof, chi2=chi2, p=p, cramersv=cramersv or '' )
+
 def df_chi_square(df: pd.DataFrame, col1: str, col2: str, cramersv: bool = True) -> str:
     '''Docstring of `df_chi_square`
 
@@ -50,10 +94,37 @@ def df_chi_square(df: pd.DataFrame, col1: str, col2: str, cramersv: bool = True)
         A string describes the result of the chi-square test.
     '''
     cto = pd.crosstab(df[col1], df[col2])
-    chi2, p, dof, exp = stats.chi2_contingency(cto)
+    chi2, p, dof, *_ = stats.chi2_contingency(cto)
     if cramersv:
         cramersv = '<br>Cramér’s V = {:.2f}'.format(corrected_cramers_V(chi2, cto))
     return 'χ2({dof}) = {chi2:.2f}<br>p = {p:.3f}{cramersv}'.format(dof=dof, chi2=chi2, p=p, cramersv=cramersv or '' )
+
+def chi_square_matrix(datasets, names: Optional[List[str]] = None, cramersv: bool = True) -> pd.DataFrame:
+    '''Docstring of `chi_square_matrix`
+
+    Run chi-square test on every two rows of given datasets,
+    with contigency tables calculated on the two rows.
+
+    Args:
+        datasets: A list containing rows of data for calculation.
+        names: Names of rows of datasets.
+        cramersv: Whether to calculate the Cramér’s V.
+            Defaults to True.
+    
+    Returns:
+        A pandas DataFrame of strings descibe the results of chi-square test.
+    '''
+    ndata = len(datasets)
+    if names is not None:
+        assert len(names) == ndata, 'Not enough names for data length {}. Given {}.'.format(ndata, len(names))
+    else:
+        names = ['trace{}'.format(i+1) for i in range(ndata)]
+    df = pd.DataFrame(index=names, columns=names)
+    for i in range(ndata):
+        for j in range(ndata):
+            df.iloc[i, j] = chi_square(datasets[i], datasets[j])
+    return df
+
 
 def df_chi_square_matrix(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
     '''Docstring of `df_chi_square_matrix`
@@ -156,7 +227,7 @@ def advanced_describe(data: list, index=None, dtype=None, name: str = None) -> p
     return des
 
 ## linear algebra
-def explained_variance(X: Optional[np.array] = None, raito: bool = False, cumulative: bool = True) -> Union[np.array, List[np.array]]:
+def explained_variance(X: Optional[np.array] = None, ratio: bool = False, cumulative: bool = True) -> Union[np.array, List[np.array]]:
     '''Docstring of `explained_variance`
 
     Calculate the explained variances of given data.
@@ -179,6 +250,18 @@ def explained_variance(X: Optional[np.array] = None, raito: bool = False, cumula
         cum_var_exp = np.cumsum(var_exp) # Cumulative explained variance
         return var_exp, cum_var_exp
     return var_exp
+
+# 
+# def bigger_mesh(x, y, h=0.2):
+#     minx, miny = np.min(x), np.min(y)
+#     maxx, maxy = np.max(x), np.max(y)
+#     dx, dy = np.power(10, np.floor(np.log10(maxx-minx))), np.power(10, np.floor(np.log10(maxy-miny)))
+#     minx, maxx = minx - dx, maxx + dx
+#     miny, maxy = miny - dy, maxy + dy
+#     xrng = np.arange(minx, maxx, h)
+#     yrng = np.arange(miny, maxy, h)
+#     xx, yy = np.meshgrid(xrng, yrng)
+#     return xx, yy
 
 # ## probability classification
 # def ground_proba_comparison(model, X, y, class_names, feature_names):
