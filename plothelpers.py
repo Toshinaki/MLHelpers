@@ -14,6 +14,11 @@ from sklearn.base import clone
 ## plotly colors:
 ## 'Blackbody', 'Bluered', 'Blues', 'Earth', 'Electric', 'Greens', 'Greys','Hot',
 ## 'Jet', 'Picnic', 'Portland', 'Rainbow', 'RdBu', 'Reds', 'Viridis', 'YlGnBu', 'YlOrRd'
+
+###############################################################################
+## Constants
+###############################################################################
+line_styles = ['solid', 'longdashdot', 'longdash', 'dashdot', 'dash', 'dot']
 ###############################################################################
 ## Helper functions
 ###############################################################################
@@ -1397,8 +1402,8 @@ def plotly_decision_boundary(
         y,
         h=0.2,
         bg_colorscale='4,div,RdBu',
-        line_colorscale='7,seq,Greys',
-        title='Decision Boundaries',
+        line_colorscale=None,
+        title='{} Decision Boundaries',
         **kwargs):
     '''Docstring of `plotly_decision_boundary`
 
@@ -1419,47 +1424,15 @@ def plotly_decision_boundary(
             that can be passed to `make_colorscale`.
         title: Save the plot with this name.
     '''
-    if model.__class__.__name__ in ['SVC']:
-        return plotly_decision_boundary_svm(model, fx, fy, y, h=h, bg_colorscale=bg_colorscale, line_colorscale=line_colorscale, title=title, **kwargs)
-    else:
-        return plotly_decision_boundary_normal(model, fx, fy, y, h=h, bg_colorscale=bg_colorscale, line_colorscale=line_colorscale, title=title, **kwargs)
-
-def plotly_decision_boundary_normal(
-        model,
-        fx,
-        fy,
-        y,
-        h=0.2,
-        bg_colorscale='4,div,RdBu',
-        line_colorscale='7,seq,Greys',
-        title='Decision Boundaries',
-        **kwargs):
-    '''Docstring of `plotly_decision_boundary_normal`
-
-    Plot decision boundaries with a model trained with two features.
-
-    Args:
-        model: A trained model.
-        fx, fy: Two features used to train the given model.
-        y: Ground-Truth of every feature pairs.
-        h: The feature step for constructing meshgrid.
-        bg_colorscale: Background colorscale.
-            A list of `[percentage, color]` pairs, or a string
-            that can be passed to `make_colorscale`.
-        line_colorscale: Probability contour line colors.
-            A list of `[percentage, color]` pairs, or a string
-            that can be passed to `make_colorscale`.
-        title: Save the plot with this name.
-    '''
+    model_name = model.__class__.__name__
+    
     classes, idx = np.unique(y, return_inverse=True)
     n_class = len(classes)
     # train the model
     model.fit(np.c_[fx, fy], idx)
-    # colors
+    # background colors
     if isinstance(bg_colorscale, str):
         bg_colorscale = make_colorscale(bg_colorscale, n=n_class)
-    if isinstance(line_colorscale, str):
-        line_colorscale = make_colorscale(line_colorscale)
     # meshgrid
     minx, miny = np.min(fx), np.min(fy)
     maxx, maxy = np.max(fx), np.max(fy)
@@ -1474,14 +1447,13 @@ def plotly_decision_boundary_normal(
     width = kwargs.get('width', 900)
     height = kwargs.get('height', 700)
     layout = go.Layout(
-        title=title, width=width, height=height, hovermode='closest',
+        title=title.format(model_name), width=width, height=height, hovermode='closest',
         xaxis=dict(showgrid=False, range=[minx, maxx], zeroline=False), 
         yaxis=dict(showgrid=False, range=[miny, maxy], zeroline=False)
     )
     layout.update(kwargs.get('layout', {}))
     # class contour; background
-    Z = model.predict(xy).reshape(xx.shape)
-    Z = Z.reshape(xx.shape).astype(int)
+    Z = model.predict(xy).reshape(xx.shape).astype(int)
     trace0 = go.Contour(
         z=Z, x=xrng, y=yrng, text=classes, hoverinfo='x+y+text',
         contours=dict(start=0, end=n_class, size=1), line=dict(width=0, smoothing=kwargs.get('contour_smoothing', 0)),
@@ -1494,16 +1466,73 @@ def plotly_decision_boundary_normal(
         showlegend=False
     )
     traces = [trace0, trace1]
+    
+    args = [model]
+    if model_name in ['SVC']:
+        plotter = plotly_decision_boundary_svm
+        args.extend([fx, fy, y, n_class, classes, xx.shape, xy])
+    elif model_name in ['DecisionTreeClassifier']:
+        plotter = plotly_decision_boundary_tree
+    else:
+        plotter = plotly_decision_boundary_normal
+        args.extend([n_class, classes, xx.shape, xy])
+    buttons, traces = plotter(*args, xrng, yrng, traces, line_colorscale=line_colorscale, **kwargs)
+    
+    updatemenus = [dict(
+        type='buttons',
+        buttons=buttons
+    )]
+    layout.updatemenus = updatemenus
+    fig = go.Figure(data=traces, layout=layout)
+    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
+    if kwargs.get('return_fig', False):
+        return fig
+    else:
+        plty.iplot(fig)
+
+def plotly_decision_boundary_normal(
+        model,
+        n_class,
+        classes,
+        shape,
+        xy,
+        xrng,
+        yrng,
+        traces,
+        line_colorscale=None,
+        **kwargs):
+    '''Docstring of `plotly_decision_boundary_normal`
+
+    Plot decision boundaries with a model trained with two features.
+
+    Args:
+        model: A model.
+        fx, fy: Two features used to train the given model.
+        y: Ground-Truth of every feature pairs.
+        h: The feature step for constructing meshgrid.
+        bg_colorscale: Background colorscale.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        line_colorscale: Probability contour line colors.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
+    '''
     # control buttons
     buttons = [dict(
         label = 'Reset',
         method = 'restyle',
         args = [{'visible': [True, True] + [False]*n_class}]
     )]
+    # line colors
+    if line_colorscale is None:
+        line_colorscale = '7,seq,Greys'
+    if isinstance(line_colorscale, str):
+        line_colorscale = make_colorscale(line_colorscale)
     # probrability contours and buttons
-    Z2 = model.predict_proba(np.c_[xx.ravel(), yy.ravel()])
+    Z2 = model.predict_proba(xy)
     for i in range(n_class):
-        ZZ2 = Z2[:, i].reshape(xx.shape)
+        ZZ2 = Z2[:, i].reshape(shape)
         trace = go.Contour(
             z=ZZ2, x=xrng, y=yrng, hoverinfo='x+y+z+name', name=classes[i],
             contours=dict(
@@ -1524,28 +1553,21 @@ def plotly_decision_boundary_normal(
         method = 'restyle',
         args = [{'visible': [True, True] + [True]*n_class}]
     ))
-    updatemenus = [dict(
-        type='buttons',
-        buttons=buttons
-    )]
-    layout.updatemenus = updatemenus
-
-    fig = go.Figure(data=traces, layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    if kwargs.get('return_fig', False):
-        return fig
-    else:
-        plty.iplot(fig)
+    return buttons, traces
 
 def plotly_decision_boundary_svm(
         model,
         fx,
         fy,
         y,
-        h=0.2,
-        bg_colorscale='4,div,RdBu',
-        line_colorscale=[[0,'rgb(0,0,0)'], [1,'rgb(0,0,0)']],
-        title='SVM Decision Boundaries',
+        n_class,
+        classes,
+        shape,
+        xy,
+        xrng,
+        yrng,
+        traces,
+        line_colorscale=None,
         **kwargs):
     '''Docstring of `plotly_decision_boundary_svm`
 
@@ -1564,63 +1586,24 @@ def plotly_decision_boundary_svm(
             that can be passed to `make_colorscale`.
         title: Save the plot with this name.
     '''
-    classes, idx = np.unique(y, return_inverse=True)
-    n_class = len(classes)
-    # train the model
-    m_all = clone(model)
-    m_all.fit(np.c_[fx, fy], idx)
-    # colors
-    if isinstance(bg_colorscale, str):
-        bg_colorscale = make_colorscale(bg_colorscale, n=n_class)
-    if isinstance(line_colorscale, str):
-        line_colorscale = make_colorscale(line_colorscale)
-    # meshgrid
-    minx, miny = np.min(fx), np.min(fy)
-    maxx, maxy = np.max(fx), np.max(fy)
-    dx, dy = np.power(10, np.floor(np.log10(maxx-minx))), np.power(10, np.floor(np.log10(maxy-miny)))
-    minx, maxx = minx - dx, maxx + dx
-    miny, maxy = miny - dy, maxy + dy
-    xrng = np.arange(minx, maxx, h)
-    yrng = np.arange(miny, maxy, h)
-    xx, yy = np.meshgrid(xrng, yrng)
-    xy = np.c_[xx.ravel(), yy.ravel()]
-    # layout
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
-    layout = go.Layout(
-        title=title, width=width, height=height, hovermode='closest',
-        xaxis=dict(showgrid=False, range=[minx, maxx], zeroline=False), 
-        yaxis=dict(showgrid=False, range=[miny, maxy], zeroline=False)
-    )
-    layout.update(kwargs.get('layout', {}))
-    # class contour; background
-    Z = m_all.predict(xy).reshape(xx.shape)
-    Z = Z.reshape(xx.shape).astype(int)
-    trace0 = go.Contour(
-        z=Z, x=xrng, y=yrng, text=classes, hoverinfo='x+y+text',
-        contours=dict(start=0, end=n_class, size=1), line=dict(width=0, smoothing=kwargs.get('contour_smoothing', 0)),
-        showscale=False, colorscale=bg_colorscale, opacity=0.6,
-    )
-    # feature scatters
-    trace1 = go.Scattergl(
-        x=fx, y=fy, mode='markers', text=y, hoverinfo='x+y+text',
-        marker=dict(color=idx, colorscale=bg_colorscale, line=dict(width=1)),
-        showlegend=False
-    )
-    traces = [trace0, trace1]
     # control buttons
     buttons = [dict(
         label = 'Reset',
         method = 'restyle',
         args = [{'visible': [True, True] + [False]*3*n_class}]
     )]
+    # line colors
+    if line_colorscale is None:
+        line_colorscale = [[0,'rgb(0,0,0)'], [1,'rgb(0,0,0)']]
+    elif isinstance(line_colorscale, str):
+        line_colorscale = make_colorscale(line_colorscale)
     # train models ovr
     for i in range(n_class):
         c_name = classes[i]
         y_c = np.where(y==c_name, 1, 0)
         m_c = clone(model)
         m_c.fit(np.c_[fx, fy], y_c)
-        Z_c = m_c.decision_function(xy).reshape(xx.shape)
+        Z_c = m_c.decision_function(xy).reshape(shape)
         trace_dash = go.Contour(
             z=Z_c, x=xrng, y=yrng, hoverinfo='x+y+z+name', name=c_name,
             contours=dict(
@@ -1659,18 +1642,104 @@ def plotly_decision_boundary_svm(
         method = 'restyle',
         args = [{'visible': [True, True] + [True]*3*n_class}]
     ))
-    updatemenus = [dict(
-        type='buttons',
-        buttons=buttons
-    )]
-    layout.updatemenus = updatemenus
+    return buttons, traces
 
-    fig = go.Figure(data=traces, layout=layout)
-    kwargs.get('save', False) and plty.plot(fig, filename=title+'.html', image_width=width, image_height=height, auto_open=False)
-    if kwargs.get('return_fig', False):
-        return fig
-    else:
-        plty.iplot(fig)
+def plotly_decision_boundary_tree(
+        model,
+        xrng,
+        yrng,
+        traces,
+        line_colorscale=None,
+        **kwargs):
+    '''Docstring of `plotly_decision_boundary_tree`
+
+    Plot decision boundaries with a Decision Tree model trained with two features.
+
+    Args:
+        model: A model.
+        fx, fy: Two features used to train the given model.
+        y: Ground-Truth of every feature pairs.
+        h: The feature step for constructing meshgrid.
+        bg_colorscale: Background colorscale.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        line_colorscale: Probability contour line colors.
+            A list of `[percentage, color]` pairs, or a string
+            that can be passed to `make_colorscale`.
+        title: Save the plot with this name.
+    '''
+    # generate boundaries
+    n_nodes = model.tree_.node_count
+    children_left = model.tree_.children_left
+    children_right = model.tree_.children_right
+    threshold = model.tree_.threshold
+    is_branch = np.where(threshold>=0, 1, 0)
+    n_boundaries = np.sum(is_branch>0)
+    is_left = [1 if i in children_left else 0 for i in range(n_nodes)]
+    feature = model.tree_.feature
+    depth = np.zeros(n_nodes)
+    for i in range(n_nodes):
+        if children_left[i] > 0 and children_right[i] > 0:
+            depth[children_left[i]] = depth[i] + 1
+            depth[children_right[i]] = depth[i] + 1
+    tree_info = pd.DataFrame(
+        np.c_[is_branch, is_left, feature, threshold, 
+              depth, children_left, children_right, 
+              [xrng[0]]*n_nodes, [xrng[-1]]*n_nodes, [yrng[0]]*n_nodes, [yrng[-1]]*n_nodes],
+        columns=['is_branch', 'is_left', 'feature', 'threshold', 'depth', 'child_left', 'child_right', 'xmin', 'xmax', 'ymin', 'ymax']
+    )
+    # tree_info[['is_branch', 'is_left', 'feature', 'depth', 'child_left', 'child_right']] = tree_info[['is_branch', 'is_left', 'feature', 'depth', 'child_left', 'child_right']].astype(int)
+    for i, row in tree_info.iterrows():
+        if row.is_branch:
+            axis = row.feature == 0 and 'x' or 'y'
+            tree_info.iloc[int(row.child_left)][axis+'max'] = row.threshold
+            tree_info.iloc[int(row.child_left)][axis+'min'] = row[axis+'min']
+            tree_info.iloc[int(row.child_right)][axis+'max'] = row[axis+'max']
+            tree_info.iloc[int(row.child_right)][axis+'min'] = row.threshold
+    tree_info = tree_info[tree_info.is_branch > 0]
+    # line colors
+    if line_colorscale is None:
+        line_colorscale = ['rgb(0,0,0)']
+    elif isinstance(line_colorscale, str):
+        line_colorscale = [c[1] for c in make_colorscale(line_colorscale, n=n_boundaries)]
+    n_colors = len(line_colorscale)
+    n_styles = len(line_styles)
+    boundaries = [(row.depth, go.Scatter(
+        x=(row.feature==0 and [row.threshold]*2 or [row.xmin, row.xmax]),
+        y=(row.feature==0 and [row.ymin, row.ymax] or [row.threshold]*2),
+        mode='lines', name='depth-{}'.format(int(row.depth)),
+        line=dict(
+            dash=line_styles[int(row.depth if row.depth<n_styles else -1)],
+            color=line_colorscale[int(row.depth if row.depth<n_colors else -1)]
+        ), visible=False
+    )) for row in tree_info.itertuples()]
+    boundaries = [b[1] for b in sorted(boundaries, key=lambda item: item[0])]
+    traces.extend(boundaries)
+
+    # control buttons
+    d = tree_info['depth'].value_counts().sort_index()
+    counts = d.values.astype(int)
+    d = d.index.astype(int)
+
+    buttons = [dict(
+        label = 'Reset', method = 'restyle',
+        args = [{'visible': [True, True] + [False]*n_boundaries}]
+    )]
+    for i in d:
+        buttons.append(dict(
+            label = 'depth-{}'.format(i), method = 'restyle',
+            args = [{
+                'visible': np.concatenate(
+                    [[True, True]] + [([True] if j == i else [False]) * counts[j] for j in d]
+                )
+            }]
+        ))
+    buttons.append(dict(
+        label = 'All',
+        method = 'restyle',
+        args = [{'visible': [True, True] + [True]*n_boundaries}]
+    ))
+    return buttons, traces
 
 ###############################################################################
 ## Matplotlib functions
