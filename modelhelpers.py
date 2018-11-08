@@ -182,11 +182,21 @@ def simple_model_scores(model, X_train, y_train, X_test=None, y_test=None, regre
         else:
             test_acc = accuracy_score(y_test, y_pred)
             print(' ', test_acc)
+    
+    # return model
 
 def simple_grid_search_scores(model, params, X_train, y_train, cv=10, scoring='neg_mean_squared_error', verbose=1):
     grid = GridSearchCV(model, params, cv=cv, scoring=scoring, verbose=verbose)
     grid.fit(X_train, y_train)
     print('== Grid Search ================')
+    print('Best parameters:')
+    print(' ', grid.best_params_)
+    return grid
+
+def simple_random_search_scores(model, params, X_train, y_train, cv=10, n_iter=100, scoring='neg_mean_squared_error', verbose=1):
+    grid = RandomizedSearchCV(model, params, cv=cv, scoring=scoring, verbose=verbose, n_iter=n_iter)
+    grid.fit(X_train, y_train)
+    print('== Random Search ================')
     print('Best parameters:')
     print(' ', grid.best_params_)
     return grid

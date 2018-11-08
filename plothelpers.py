@@ -63,10 +63,10 @@ def plotly_df_hists(
             If omitted, plot all numerical columns.
         subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         barmode: 'stack', 'group', 'overlay' or 'relative'.
-            Ignored when `subplots` is `True`.
+            Ignored when `subplot` is `True`.
         title: Save the plot with this name.
     '''
     try:
@@ -171,7 +171,7 @@ def plotly_df_boxes(
             If omitted, plot all numerical columns.
         subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         title: Save the plot with this name.
     '''
@@ -381,7 +381,7 @@ def plotly_df_qq_plots(
         datasets: A list of data to plot.
         names: Data names corresponding to items in data. Optional.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         title: Save the plot with this name.
     '''
@@ -400,7 +400,7 @@ def plotly_df_qq_plots(
 def plotly_df_bars(
         df:         pd.DataFrame, 
         columns:    Optional[Iterable[str]] = None, 
-        subplot:    bool = False,
+        subplot:    bool = True,
         ncols:      Optional[int] = None,
         barmode:    str = 'group',
         title:      str = 'Bar charts', 
@@ -417,10 +417,10 @@ def plotly_df_bars(
             If omitted, plot all categorical columns.
         subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         barmode: 'stack', 'group', 'overlay' or 'relative'.
-            Ignored when `subplots` is `True`.
+            Ignored when `subplot` is `True`.
         title: Save the plot with this name.
     '''
     try:
@@ -443,8 +443,9 @@ def plotly_df_crosstable(
     '''Docstring of `plotly_df_crosstable`
 
     Plot contigency table of two given columns with plotly heatmap.
+    Any missing value will be replaced by column mode.
 
-    Basicly same with `plotly_crosstable`
+    Basicly same with `plotly_crosstable`. 
 
     Args:
         df: A pandas DataFrame.
@@ -470,6 +471,7 @@ def plotly_df_crosstable(
         for col in columns:
             assert col in df, 'Column {} is not in given DataFrame.'.format(col)
     datasets = df[columns]
+    datasets.fillna(datasets.mode().iloc[0], inplace=True)
     return plotly_crosstable(datasets, orientation='vertical', names=columns, half=half, ttype=ttype, title=title, **kwargs)
 
 def plotly_df_crosstable_stacked(
@@ -509,6 +511,7 @@ def plotly_df_crosstable_stacked(
         for col in columns:
             assert col in df, 'Column {} is not in given DataFrame.'.format(col)
     datasets = df[columns]
+    datasets.fillna(datasets.mode().iloc[0], inplace=True)
     return plotly_crosstable_stacked(datasets, orientation='vertical', names=columns, half=half, ttype=ttype, title=title, **kwargs)
 
 def plotly_df_chi_square_matrix(
@@ -598,10 +601,10 @@ def plotly_hists(
         names: Data names corresponding to items in data. Optional.
         subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         barmode: 'stack', 'group', 'overlay' or 'relative'.
-            Ignored when `subplots` is `True`.
+            Ignored when `subplot` is `True`.
         title: Save the plot with this name.
     '''
     width = kwargs.get('width', 900)
@@ -671,7 +674,7 @@ def plotly_boxes(
         names: Data names corresponding to items in data. Optional.
         subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         title: Save the plot with this name.
     '''
@@ -996,7 +999,7 @@ def plotly_qq_plots(
         datasets: A list of data to plot.
         names: Data names corresponding to items in data. Optional.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         title: Save the plot with this name.
     '''
@@ -1051,10 +1054,10 @@ def plotly_bars(
         names: Data names corresponding to items in data. Optional.
         subplot: Whether to plot all data as subplots or not.
         ncols: Number of subplots of every row. 
-            Ignored when `subplots` is `False`.
+            Ignored when `subplot` is `False`.
             If `None`, it's determined with `datasets`'s length.
         barmode: 'stack', 'group', 'overlay' or 'relative'.
-            Ignored when `subplots` is `True`.
+            Ignored when `subplot` is `True`.
         title: Save the plot with this name.
     '''
     width = kwargs.get('width', 900)
@@ -1115,6 +1118,7 @@ def plotly_crosstable(
     '''Docstring of `plotly_crosstable`
 
     Plot contigency table (matrix) with plotly heatmap.
+    Any missing value will cause miss-plot.
 
     Args:
         datasets: A list of data to plot.
@@ -1183,7 +1187,7 @@ def plotly_crosstable(
                 ann['xref'] = 'x{}'.format(idx_j)
                 ann['yref'] = 'y{}'.format(idx_i)
             # print(layout['annotations'])
-            layout['annotations'].extend(annotations)
+            layout['annotations'] = list(layout['annotations']) + list(annotations)
             fig.append_trace(trace, idx_i, idx_j)
     
     layout.update(kwargs.get('layout', {}))
@@ -1434,22 +1438,22 @@ def plotly_decision_boundary(
     if isinstance(bg_colorscale, str):
         bg_colorscale = make_colorscale(bg_colorscale, n=n_class)
     # meshgrid
-    minx, miny = np.min(fx), np.min(fy)
-    maxx, maxy = np.max(fx), np.max(fy)
-    dx, dy = np.power(10, np.floor(np.log10(maxx-minx))), np.power(10, np.floor(np.log10(maxy-miny)))
-    minx, maxx = minx - dx, maxx + dx
-    miny, maxy = miny - dy, maxy + dy
+    xmin, ymin = np.min(fx), np.min(fy)
+    xmax, ymax = np.max(fx), np.max(fy)
+    dx, dy = np.power(10, np.floor(np.log10(xmax-xmin))), np.power(10, np.floor(np.log10(ymax-ymin)))
+    minx, maxx = xmin - dx, xmax + dx
+    miny, maxy = ymin - dy, ymax + dy
     xrng = np.arange(minx, maxx, h)
     yrng = np.arange(miny, maxy, h)
     xx, yy = np.meshgrid(xrng, yrng)
     xy = np.c_[xx.ravel(), yy.ravel()]
     # layout
-    width = kwargs.get('width', 900)
-    height = kwargs.get('height', 700)
+    width = kwargs.get('width', 800)
+    height = kwargs.get('height', 500)
     layout = go.Layout(
         title=title.format(model_name), width=width, height=height, hovermode='closest',
-        xaxis=dict(showgrid=False, range=[minx, maxx], zeroline=False), 
-        yaxis=dict(showgrid=False, range=[miny, maxy], zeroline=False)
+        xaxis=dict(showgrid=False, range=[xmin-dx/10, xmax+dx/10], zeroline=False), 
+        yaxis=dict(showgrid=False, range=[ymin-dx/10, ymax+dx/10], zeroline=False)
     )
     layout.update(kwargs.get('layout', {}))
     # class contour; background
@@ -1479,8 +1483,9 @@ def plotly_decision_boundary(
     buttons, traces = plotter(*args, xrng, yrng, traces, line_colorscale=line_colorscale, **kwargs)
     
     updatemenus = [dict(
-        type='buttons',
-        buttons=buttons
+        type='buttons', buttons=buttons,
+        x=1.05, xanchor='left', y=0, yanchor='bottom',
+        pad=dict(r=5)
     )]
     layout.updatemenus = updatemenus
     fig = go.Figure(data=traces, layout=layout)
